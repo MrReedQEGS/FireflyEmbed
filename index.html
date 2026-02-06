@@ -1,0 +1,24 @@
+<!DOCTYPE html>
+<html>
+<head>
+  <meta charset="UTF-8">
+  <title>Python Hello World</title>
+  <script src="https://cdn.jsdelivr.net/pyodide/v0.24.1/full/pyodide.js"></script>
+</head>
+<body>
+  <h1>Python in the Browser</h1>
+  <pre id="output">Loading...</pre>
+
+  <script>
+    async function main() {
+      const pyodide = await loadPyodide();
+      const result = pyodide.runPython(`
+print("Hello, world - Mr Reed!")
+      `);
+      document.getElementById("output").textContent =
+        pyodide.runPython("import sys; sys.stdout.getvalue()");
+    }
+    main();
+  </script>
+</body>
+</html>
