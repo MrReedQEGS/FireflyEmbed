@@ -32,20 +32,23 @@
     #left { border-right: 1px solid #ddd; }
     .pane-title { padding: 8px 12px; font-size: 14px; color: #444; border-bottom: 1px solid #eee; }
 
+    /* Editor */
     #editorWrap { flex: 1; min-height: 0; }
     .CodeMirror { height: 100% !important; font-size: 14px; line-height: 1.4; }
     .CodeMirror-gutters { border-right: 1px solid #eee; }
 
+    /* Console */
     #consoleWrap { flex: 1; min-height: 0; background: #0b0b0b; }
     #console {
       height: 100%;
       padding: 12px;
       overflow: auto;
       color: #eaeaea;
-      font-family: ui-monospace, monospace;
+      font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, "Liberation Mono", monospace;
       font-size: 14px;
       line-height: 1.4;
       white-space: pre-wrap;
+      word-break: break-word;
       outline: none;
       cursor: text;
     }
@@ -56,6 +59,7 @@
       margin-left: 1px;
       background: #eaeaea;
       animation: blink 1s steps(1) infinite;
+      vertical-align: -2px;
       height: 1em;
     }
     @keyframes blink { 50% { opacity: 0; } }
@@ -69,7 +73,10 @@
 
   <button id="run" disabled>Run ▶</button>
   <button id="reload" disabled>Reload ↻</button>
-  <button id="downloadTxt">Download .txt</button>
+
+  <!-- ✅ NEW: Download button -->
+  <button id="download" disabled>Download .txt</button>
+
   <button id="clear" disabled>Clear</button>
 
   <div class="spacer"></div>
@@ -96,80 +103,218 @@
   const runBtn = document.getElementById("run");
   const reloadBtn = document.getElementById("reload");
   const clearBtn = document.getElementById("clear");
+  const downloadBtn = document.getElementById("download"); // ✅ NEW
   const statusEl = document.getElementById("status");
   const consoleEl = document.getElementById("console");
   const programSel = document.getElementById("program");
   const filenameEl = document.getElementById("filename");
 
-  const setStatus = s => statusEl.textContent = s;
+  const setStatus = (s) => statusEl.textContent = s;
 
-  function write(s="") { consoleEl.textContent += s; consoleEl.scrollTop = consoleEl.scrollHeight; }
+  /* ---------- Console helpers (core) ---------- */
+  function scrollConsole() { consoleEl.scrollTop = consoleEl.scrollHeight; }
+  function removeCaret() { consoleEl.querySelector(".caret")?.remove(); }
+  function renderCaret() {
+    removeCaret();
+    const c = document.createElement("span");
+    c.className = "caret";
+    consoleEl.appendChild(c);
+  }
+  function write(s="") {
+    removeCaret();
+    consoleEl.textContent += s;
+    if (inputActive) renderCaret();
+    scrollConsole();
+  }
   function writeln(s="") { write(s + "\n"); }
   function clearConsole() { consoleEl.textContent = ""; }
-  clearBtn.onclick = () => clearConsole();
 
+  clearBtn.onclick = () => { clearConsole(); consoleEl.focus(); };
+
+  /* ---------- Editor ---------- */
   const cm = CodeMirror.fromTextArea(document.getElementById("editor"), {
     mode: "python",
     lineNumbers: true,
     indentUnit: 4,
-    matchBrackets: true
+    tabSize: 4,
+    smartIndent: true,
+    matchBrackets: true,
+    extraKeys: {
+      "Tab": cm => cm.replaceSelection("    ", "end"),
+      "Shift-Tab": cm => cm.indentSelection("subtract")
+    }
   });
   cm.setSize(null, "100%");
-  window.cm = cm;   // <<< SAFE EXPOSURE
 
-  let inputActive = false, inputBuffer = "", inputResolve = null;
-  function beginInput(prompt="") {
-    inputActive = true; inputBuffer = "";
-    write(prompt);
-    return new Promise(r => inputResolve = r);
+  /* ---------- Inline input (core) ---------- */
+  let inputActive = false;
+  let inputBuffer = "";
+  let inputResolve = null;
+
+  function beginInput(prompt) {
+    inputActive = true;
+    inputBuffer = "";
+    if (prompt) write(String(prompt));
+    renderCaret();
+    consoleEl.focus();
+    return new Promise(resolve => inputResolve = resolve);
   }
+
   function finishInput() {
     inputActive = false;
+    removeCaret();
     inputResolve?.(inputBuffer);
     inputResolve = null;
   }
 
-  consoleEl.addEventListener("keydown", e => {
+  consoleEl.addEventListener("keydown", (e) => {
     if (!inputActive) return;
     e.preventDefault();
-    if (e.key === "Enter") { writeln(); finishInput(); }
-    else if (e.key === "Backspace" && inputBuffer.length) {
-      inputBuffer = inputBuffer.slice(0,-1);
-      consoleEl.textContent = consoleEl.textContent.slice(0,-1);
+
+    if (e.key === "Enter") {
+      write("\n");
+      finishInput();
+    } else if (e.key === "Backspace") {
+      if (inputBuffer.length) {
+        inputBuffer = inputBuffer.slice(0, -1);
+        removeCaret();
+        consoleEl.textContent = consoleEl.textContent.slice(0, -1);
+        renderCaret();
+      }
+    } else if (e.key.length === 1) {
+      inputBuffer += e.key;
+      write(e.key);
     }
-    else if (e.key.length === 1) { inputBuffer += e.key; write(e.key); }
   });
+
+  consoleEl.addEventListener("mousedown", () => consoleEl.focus());
 
   function wrapUserCode(src) {
     const t = src.replace(/(^|[^\w.])input\s*\(/g, "$1await input(");
-    return "async def __main__():\n" +
-      t.split("\n").map(l=>"    "+l).join("\n") +
-      "\nawait __main__()";
+    const i = t.split("\n").map(l => "    " + l);
+    return ["async def __main__():", ...i, "", "await __main__()"].join("\n");
   }
 
-  const originals = new Map();
+  /* ---------- Program list + originals cache ---------- */
   let currentFile = null;
+  let previousSelectValue = null;
+
+  const originals = new Map();
+
+  function getEditorText() {
+    return cm.getValue().replace(/\r\n/g, "\n");
+  }
+  function getOriginalText(file) {
+    const t = originals.get(file);
+    return (t ?? "").replace(/\r\n/g, "\n");
+  }
+  function isDirtyAgainstOriginal() {
+    if (!currentFile) return false;
+    return getEditorText() !== getOriginalText(currentFile);
+  }
+
+  function confirmDiscardIfDirty(actionName) {
+    if (!isDirtyAgainstOriginal()) return true;
+    return confirm(
+      `${actionName} will discard your changes to "${currentFile}".\n\nAre you sure?`
+    );
+  }
 
   async function loadProgramList() {
-    const files = await (await fetch("./programs.json")).json();
-    for (const f of files) programSel.add(new Option(f,f));
+    const res = await fetch("./programs.json", { cache: "no-store" });
+    if (!res.ok) throw new Error(`programs.json not found (HTTP ${res.status})`);
+    const files = await res.json();
+
+    programSel.innerHTML = "";
+    for (const f of files) {
+      const opt = document.createElement("option");
+      opt.value = f;
+      opt.textContent = f;
+      programSel.appendChild(opt);
+    }
     return files[0];
   }
 
-  async function loadProgram(file) {
-    clearConsole();
-    const text = await (await fetch("./"+file)).text();
-    originals.set(file,text);
-    currentFile = file;
-    cm.setValue(text);
-    filenameEl.textContent = file;
-    programSel.value = file;
+  async function fetchProgramText(file) {
+    const res = await fetch("./" + file, { cache: "no-store" });
+    if (!res.ok) throw new Error(`${file} not found (HTTP ${res.status})`);
+    return await res.text();
   }
 
+  async function loadProgram(file) {
+    if (inputActive) {
+      inputBuffer = "";
+      finishInput();
+    }
+    removeCaret();
+    clearConsole();
+
+    setStatus("Loading " + file + "…");
+
+    const text = await fetchProgramText(file);
+    originals.set(file, text);
+    currentFile = file;
+
+    cm.setValue(text);
+    filenameEl.textContent = file;
+
+    programSel.value = file;
+    previousSelectValue = file;
+
+    setStatus("Ready");
+    consoleEl.focus();
+  }
+
+  programSel.addEventListener("change", async () => {
+    const nextFile = programSel.value;
+
+    if (!confirmDiscardIfDirty("Switching programs")) {
+      programSel.value = previousSelectValue ?? currentFile ?? nextFile;
+      return;
+    }
+
+    try {
+      await loadProgram(nextFile);
+    } catch (e) {
+      setStatus("Load error");
+      writeln(String(e));
+      programSel.value = previousSelectValue ?? currentFile ?? nextFile;
+    }
+  });
+
+  reloadBtn.addEventListener("click", async () => {
+    if (!confirmDiscardIfDirty("Reloading")) return;
+
+    try {
+      await loadProgram(programSel.value);
+    } catch (e) {
+      setStatus("Load error");
+      writeln(String(e));
+    }
+  });
+
+  /* ---------- ✅ NEW: Download .txt (no impact on runtime) ---------- */
+  downloadBtn.addEventListener("click", () => {
+    // Use currentFile if available; fall back to filename label
+    let base = currentFile || (filenameEl.textContent || "program");
+    base = base.replace(/\.py$/i, "");
+    const downloadName = base + ".txt";
+
+    const blob = new Blob([cm.getValue()], { type: "text/plain" });
+    const a = document.createElement("a");
+    a.href = URL.createObjectURL(blob);
+    a.download = downloadName;
+    a.click();
+    URL.revokeObjectURL(a.href);
+  });
+
+  /* ---------- Pyodide ---------- */
   setStatus("Loading Python…");
   const pyodide = await loadPyodide();
+
   pyodide.setStdout({ batched: s => writeln(s) });
   pyodide.setStderr({ batched: s => writeln(s) });
+
   pyodide.globals.set("__console_input__", beginInput);
   await pyodide.runPythonAsync(`
 import builtins
@@ -178,40 +323,33 @@ async def _input(prompt=""):
 builtins.input = _input
   `);
 
-  runBtn.disabled = reloadBtn.disabled = clearBtn.disabled = programSel.disabled = false;
+  // UI ready
+  runBtn.disabled = false;
+  reloadBtn.disabled = false;
+  clearBtn.disabled = false;
+  programSel.disabled = false;
+  downloadBtn.disabled = false; // ✅ NEW
 
   const first = await loadProgramList();
   await loadProgram(first);
 
+  /* ---------- Run ---------- */
   runBtn.onclick = async () => {
+    runBtn.disabled = true;
     setStatus("Running…");
-    try { await pyodide.runPythonAsync(wrapUserCode(cm.getValue())); }
-    catch(e){ writeln(String(e)); }
-    setStatus("Done");
+    try {
+      await pyodide.runPythonAsync(wrapUserCode(cm.getValue()));
+      setStatus("Done");
+    } catch (e) {
+      setStatus("Error");
+      writeln(String(e));
+    } finally {
+      runBtn.disabled = false;
+      consoleEl.focus();
+    }
   };
 
-  reloadBtn.onclick = () => loadProgram(programSel.value);
+  consoleEl.focus();
 </script>
-
-<!-- SAFE, NON-MODULE DOWNLOAD SCRIPT -->
-<script>
-  document.getElementById("downloadTxt").addEventListener("click", () => {
-    if (!window.cm) return alert("Editor not ready");
-
-    let name = "program.txt";
-    const label = document.getElementById("filename");
-    if (label && label.textContent) {
-      name = label.textContent.replace(/\.py$/i, "") + ".txt";
-    }
-
-    const blob = new Blob([window.cm.getValue()], { type: "text/plain" });
-    const a = document.createElement("a");
-    a.href = URL.createObjectURL(blob);
-    a.download = name;
-    a.click();
-    URL.revokeObjectURL(a.href);
-  });
-</script>
-
 </body>
 </html>
