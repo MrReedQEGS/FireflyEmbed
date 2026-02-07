@@ -96,7 +96,7 @@
       outline: none;
       cursor: text;
 
-      /* ✅ FIX: ensure scrolling area stays black */
+      /* keep scrolling area black */
       background: #0b0b0b;
       box-sizing: border-box;
       min-height: 0;
@@ -123,6 +123,7 @@
   <button id="run" disabled>Run ▶</button>
   <button id="reload" disabled>Reload ↻</button>
   <button id="download" disabled>Download</button>
+  <button id="upload" disabled>Upload</button>
 
   <div class="spacer"></div>
   <div id="status">Loading…</div>
@@ -146,6 +147,9 @@
   </section>
 </div>
 
+<!-- Hidden file picker (accepts .txt and .py) -->
+<input id="fileInput" type="file" accept=".txt,.py" style="display:none" />
+
 <script type="module">
   import { loadPyodide } from "https://cdn.jsdelivr.net/pyodide/v0.25.1/full/pyodide.mjs";
 
@@ -153,6 +157,9 @@
   const reloadBtn = document.getElementById("reload");
   const clearBtn = document.getElementById("clear");
   const downloadBtn = document.getElementById("download");
+  const uploadBtn = document.getElementById("upload");
+  const fileInput = document.getElementById("fileInput");
+
   const statusEl = document.getElementById("status");
   const consoleEl = document.getElementById("console");
   const programSel = document.getElementById("program");
@@ -272,9 +279,7 @@
     const res = await fetch("./programs.json", { cache: "no-store" });
     const files = await res.json();
     programSel.innerHTML = "";
-    for (const f of files) {
-      programSel.add(new Option(f, f));
-    }
+    for (const f of files) programSel.add(new Option(f, f));
     return files[0];
   }
 
@@ -334,6 +339,33 @@
     URL.revokeObjectURL(a.href);
   });
 
+  /* ---------- Upload (.txt or .py) ---------- */
+  uploadBtn.addEventListener("click", () => {
+    if (!confirmDiscardIfDirty("Uploading a file")) return;
+    fileInput.value = "";
+    fileInput.click();
+  });
+
+  fileInput.addEventListener("change", async () => {
+    const file = fileInput.files && fileInput.files[0];
+    if (!file) return;
+
+    if (inputActive) {
+      inputBuffer = "";
+      finishInput();
+    }
+    removeCaret();
+    clearConsole();
+
+    setStatus("Loading " + file.name + "…");
+    const text = await file.text();
+
+    cm.setValue(text);
+    filenameEl.textContent = file.name + " (uploaded)";
+    setStatus("Ready (uploaded)");
+    consoleEl.focus();
+  });
+
   /* ---------- Pyodide ---------- */
   setStatus("Loading Python…");
   const pyodide = await loadPyodide();
@@ -354,6 +386,7 @@ builtins.input = _input
   clearBtn.disabled = false;
   programSel.disabled = false;
   downloadBtn.disabled = false;
+  uploadBtn.disabled = false;
 
   const first = await loadProgramList();
   await loadProgram(first);
