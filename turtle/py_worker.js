@@ -10,30 +10,17 @@ function post(type, data = {}) {
 
 // Convert Pyodide proxies / Maps / dicts into a plain JS object
 function toPlainObject(x) {
-  // PyProxy with toJs()
   if (x && typeof x === "object" && typeof x.toJs === "function") {
-    // dict_converter turns Python dicts into plain objects
     const converted = x.toJs({ dict_converter: Object.fromEntries });
     return toPlainObject(converted);
   }
-
-  // Map -> object
-  if (x instanceof Map) {
-    return Object.fromEntries(x.entries());
-  }
-
-  // Array -> recurse
-  if (Array.isArray(x)) {
-    return x.map(toPlainObject);
-  }
-
-  // Plain object -> recurse values
+  if (x instanceof Map) return Object.fromEntries(x.entries());
+  if (Array.isArray(x)) return x.map(toPlainObject);
   if (x && typeof x === "object") {
     const out = {};
     for (const [k, v] of Object.entries(x)) out[k] = toPlainObject(v);
     return out;
   }
-
   return x;
 }
 
@@ -66,12 +53,19 @@ async def _input(prompt=""):
 builtins.input = _input
   `);
 
-  // Install minimal browser turtle module named "turtle"
+  // Install browser turtle module named "turtle"
   await pyodide.runPythonAsync(`
 import math, types, sys
 
 def _cmd(**kwargs):
     __canvas_cmd__(kwargs)
+
+def _emit_state(t):
+    _cmd(type="turtle",
+         x=t.x, y=t.y,
+         heading=t.heading,
+         visible=t._visible,
+         pencolor=t._pencolor)
 
 class _WebTurtle:
     def __init__(self):
@@ -81,7 +75,10 @@ class _WebTurtle:
         self._pendown = True
         self._pencolor = "#00ff66"
         self._pensize = 2.0
-        self._speed = 0      # 0 = fastest (like real turtle)
+        self._speed = 0      # 0 = instant
+        self._visible = True
+
+        _emit_state(self)
 
     def _line_to(self, nx, ny):
         if self._pendown:
@@ -94,6 +91,7 @@ class _WebTurtle:
                 speed=self._speed
             )
         self.x, self.y = nx, ny
+        _emit_state(self)
 
     def forward(self, d):
         r = math.radians(self.heading)
@@ -105,10 +103,12 @@ class _WebTurtle:
         self.forward(-d)
 
     def left(self, deg):
-        self.heading = (self.heading + deg) % 360.0
+        self.heading = (self.heading + float(deg)) % 360.0
+        _emit_state(self)
 
     def right(self, deg):
-        self.heading = (self.heading - deg) % 360.0
+        self.heading = (self.heading - float(deg)) % 360.0
+        _emit_state(self)
 
     def goto(self, x, y=None):
         if y is None:
@@ -118,12 +118,16 @@ class _WebTurtle:
     def setpos(self, x, y=None):
         self.goto(x, y)
 
+    def setposition(self, x, y=None):
+        self.goto(x, y)
+
     def penup(self): self._pendown = False
     def pendown(self): self._pendown = True
 
     def pencolor(self, c=None):
         if c is None: return self._pencolor
         self._pencolor = str(c)
+        _emit_state(self)
 
     def pensize(self, w=None):
         if w is None: return self._pensize
@@ -140,15 +144,34 @@ class _WebTurtle:
         if s > 10: s = 10
         self._speed = s
 
-    def clear(self): _cmd(type="clear")
-    def bgcolor(self, c): _cmd(type="bg", color=str(c))
+    def hideturtle(self):
+        self._visible = False
+        _emit_state(self)
+
+    def ht(self): self.hideturtle()
+
+    def showturtle(self):
+        self._visible = True
+        _emit_state(self)
+
+    def st(self): self.showturtle()
+
+    def clear(self):
+        _cmd(type="clear")
+        _emit_state(self)
+
+    def bgcolor(self, c):
+        _cmd(type="bg", color=str(c))
+        _emit_state(self)
 
     def home(self):
         self.goto(0, 0)
         self.heading = 0.0
+        _emit_state(self)
 
     def setheading(self, deg):
         self.heading = float(deg) % 360.0
+        _emit_state(self)
 
 # shared default turtle
 _T = _WebTurtle()
@@ -159,7 +182,7 @@ def reset():
     global _T
     _T = _WebTurtle()
 
-# module-level wrappers like real turtle
+# module-level wrappers (like real turtle)
 def forward(d): _T.forward(d)
 def fd(d): _T.forward(d)
 def backward(d): _T.backward(d)
@@ -169,7 +192,8 @@ def lt(a): _T.left(a)
 def right(a): _T.right(a)
 def rt(a): _T.right(a)
 def goto(x, y=None): _T.goto(x, y)
-def setpos(x, y=None): _T.setpos(x, y)   # added
+def setpos(x, y=None): _T.setpos(x, y)
+def setposition(x, y=None): _T.setposition(x, y)
 def penup(): _T.penup()
 def pu(): _T.penup()
 def pendown(): _T.pendown()
@@ -177,7 +201,11 @@ def pd(): _T.pendown()
 def pencolor(c=None): return _T.pencolor(c)
 def pensize(w=None): return _T.pensize(w)
 def width(w=None): return _T.pensize(w)
-def speed(s=None): return _T.speed(s)    # added
+def speed(s=None): return _T.speed(s)
+def hideturtle(): _T.hideturtle()
+def ht(): _T.ht()
+def showturtle(): _T.showturtle()
+def st(): _T.st()
 def clear(): _T.clear()
 def bgcolor(c): _T.bgcolor(c)
 def home(): _T.home()
