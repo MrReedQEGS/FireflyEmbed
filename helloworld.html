@@ -3,36 +3,114 @@
   <head>
     <meta charset="utf-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1" />
-    <title>Python in a browser - Mr Reed!</title>
-
-    <!-- Modern PyScript (pin a version) -->
-    <link rel="stylesheet" href="https://pyscript.net/releases/2025.11.1/core.css" />
-    <script type="module" src="https://pyscript.net/releases/2025.11.1/core.js"></script>
+    <title>Python Runner (Pyodide)</title>
+    <style>
+      body { margin: 0; font-family: system-ui, sans-serif; height: 100vh; display: flex; flex-direction: column; }
+      header { padding: 10px 12px; border-bottom: 1px solid #ddd; display: flex; gap: 10px; align-items: center; }
+      #status { color: #666; font-size: 14px; }
+      #app { flex: 1; display: flex; min-height: 0; }
+      #left, #right { width: 50%; min-width: 320px; min-height: 0; display: flex; flex-direction: column; }
+      #left { border-right: 1px solid #ddd; }
+      .pane-title { padding: 8px 12px; border-bottom: 1px solid #eee; font-size: 14px; color: #444; }
+      textarea { flex: 1; width: 100%; border: 0; outline: none; resize: none; padding: 12px; font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, "Liberation Mono", monospace; font-size: 14px; line-height: 1.4; }
+      pre { flex: 1; margin: 0; padding: 12px; overflow: auto; background: #0b0b0b; color: #eaeaea; font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, "Liberation Mono", monospace; font-size: 14px; line-height: 1.4; }
+      button { padding: 8px 12px; cursor: pointer; }
+      .spacer { flex: 1; }
+    </style>
   </head>
 
   <body>
-    <h1>Run Python with input()</h1>
+    <header>
+      <button id="run" disabled>Run ▶</button>
+      <button id="clear" disabled>Clear output</button>
+      <div class="spacer"></div>
+      <div id="status">Loading Python…</div>
+    </header>
 
-    <!-- Interactive terminal (interactive when code runs in a worker) -->
-    <py-terminal></py-terminal>
+    <div id="app">
+      <section id="left">
+        <div class="pane-title">main.py (editable)</div>
+        <textarea id="code" spellcheck="false"></textarea>
+      </section>
 
-    <button id="run">Run program</button>
+      <section id="right">
+        <div class="pane-title">Output</div>
+        <pre id="out"></pre>
+      </section>
+    </div>
 
-    <!-- Start a worker, load main.py, but DON'T run anything at import time -->
-    <script
-      type="py"
-      src="./main.py"
-      worker
-      terminal
-      name="prog">
-    </script>
+    <script type="module">
+      import { loadPyodide } from "https://cdn.jsdelivr.net/pyodide/v0.25.1/full/pyodide.mjs";
 
-    <script>
-      document.getElementById("run").addEventListener("click", async () => {
-        // Get the named worker and call the exported function
-        const w = await pyscript.workers["prog"];
-        await w.run_program();
+      const runBtn = document.getElementById("run");
+      const clearBtn = document.getElementById("clear");
+      const statusEl = document.getElementById("status");
+      const codeEl = document.getElementById("code");
+      const outEl = document.getElementById("out");
+
+      const write = (s) => { outEl.textContent += s; };
+      const writeln = (s) => { outEl.textContent += s + "\n"; };
+      const clearOut = () => { outEl.textContent = ""; };
+
+      clearBtn.onclick = clearOut;
+
+      // Load main.py into the editor
+      async function loadInitialCode() {
+        try {
+          const res = await fetch("./main.py", { cache: "no-store" });
+          if (!res.ok) throw new Error(`Could not load main.py (HTTP ${res.status})`);
+          codeEl.value = await res.text();
+        } catch (e) {
+          codeEl.value = "# main.py not found. Create main.py next to index.html\nprint('Hello!')";
+          writeln(String(e));
+        }
+      }
+
+      // 1) Load Pyodide
+      const pyodide = await loadPyodide();
+
+      // 2) Route Python stdout/stderr to the output pane
+      pyodide.setStdout({ batched: (s) => writeln(s) });
+      pyodide.setStderr({ batched: (s) => writeln(s) });
+
+      // 3) Provide input() via browser prompt()
+      //    (Trinket-like interactive: it will pop a prompt whenever input() is called)
+      pyodide.globals.set("__js_input__", (promptText) => {
+        const v = window.prompt(promptText ?? "");
+        return v === null ? "" : v;
       });
+
+      // 4) Patch Python builtins.input to call __js_input__
+      await pyodide.runPythonAsync(`
+import builtins
+def _browser_input(prompt=""):
+    return __js_input__(str(prompt))
+builtins.input = _browser_input
+      `);
+
+      await loadInitialCode();
+
+      statusEl.textContent = "Ready";
+      runBtn.disabled = false;
+      clearBtn.disabled = false;
+
+      // Run button: execute whatever is in the editor
+      runBtn.onclick = async () => {
+        clearOut();
+        runBtn.disabled = true;
+        statusEl.textContent = "Running…";
+
+        try {
+          // runPythonAsync lets Python yield to the browser (better for longer scripts)
+          await pyodide.runPythonAsync(codeEl.value);
+          statusEl.textContent = "Done";
+        } catch (err) {
+          statusEl.textContent = "Error";
+          writeln(String(err));
+        } finally {
+          runBtn.disabled = false;
+        }
+      };
     </script>
   </body>
 </html>
