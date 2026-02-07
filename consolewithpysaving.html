@@ -95,6 +95,11 @@
       white-space: pre-wrap;
       outline: none;
       cursor: text;
+
+      /* ✅ FIX: ensure scrolling area stays black */
+      background: #0b0b0b;
+      box-sizing: border-box;
+      min-height: 0;
     }
 
     .caret {
