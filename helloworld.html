@@ -3,16 +3,35 @@
   <head>
     <meta charset="utf-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1" />
-    <title>PyScript on GitHub Pages</title>
+    <title>PyScript Run Button</title>
 
+    <!-- Modern PyScript (pinned version) -->
     <link rel="stylesheet" href="https://pyscript.net/releases/2025.11.1/core.css" />
     <script type="module" src="https://pyscript.net/releases/2025.11.1/core.js"></script>
   </head>
 
   <body>
-    <h1>PyScript test - Mark Reed - Feb 2026</h1>
+    <h1>Run Python with input()</h1>
 
-    <!-- On-page terminal: print() goes here -->
-    <script type="py" src="./helloworld.py" terminal></script>
+    <!-- Terminal for print() and input() -->
+    <py-terminal></py-terminal>
+
+    <!-- Run button -->
+    <button id="run">Run Python</button>
+
+    <!-- Python code (loaded but NOT auto-run) -->
+    <script
+      type="py"
+      src="./main.py"
+      terminal
+      worker
+      id="pycode">
+    </script>
+
+    <script>
+      document.getElementById("run").onclick = () => {
+        pyscript.run("pycode");
+      };
+    </script>
   </body>
 </html>
