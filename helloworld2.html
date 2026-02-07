@@ -1,39 +1,63 @@
 <!doctype html>
 <html>
 <head>
-  <meta charset="utf-8" />
-  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
   <title>Trinket-like Python Runner</title>
 
   <!-- CodeMirror 5 -->
-  <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/codemirror@5.65.16/lib/codemirror.css">
+  <link rel="stylesheet"
+        href="https://cdn.jsdelivr.net/npm/codemirror@5.65.16/lib/codemirror.css">
   <script src="https://cdn.jsdelivr.net/npm/codemirror@5.65.16/lib/codemirror.js"></script>
   <script src="https://cdn.jsdelivr.net/npm/codemirror@5.65.16/mode/python/python.js"></script>
 
-  <!-- xterm.js (Terminal) -->
-  <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/xterm/5.5.0/xterm.css">
-  <script src="https://cdnjs.cloudflare.com/ajax/libs/xterm/5.5.0/xterm.min.js"></script>
-
-  <!-- Fit addon (UMD) -->
-  <script src="https://cdn.jsdelivr.net/npm/@xterm/addon-fit@0.10.0/lib/addon-fit.min.js"></script>
+  <!-- xterm.js (KNOWN-GOOD URLs) -->
+  <link rel="stylesheet"
+        href="https://unpkg.com/xterm@5.5.0/css/xterm.css">
+  <script src="https://unpkg.com/xterm@5.5.0/lib/xterm.js"></script>
+  <script src="https://unpkg.com/xterm-addon-fit@0.10.0/lib/xterm-addon-fit.js"></script>
 
   <style>
-    body { margin: 0; height: 100vh; display: flex; flex-direction: column; font-family: system-ui, sans-serif; }
-    header { display: flex; gap: 10px; align-items: center; padding: 10px 12px; border-bottom: 1px solid #ddd; }
+    body {
+      margin: 0;
+      height: 100vh;
+      display: flex;
+      flex-direction: column;
+      font-family: system-ui, sans-serif;
+    }
+    header {
+      display: flex;
+      gap: 10px;
+      align-items: center;
+      padding: 10px 12px;
+      border-bottom: 1px solid #ddd;
+    }
     #status { color: #666; font-size: 14px; }
     .spacer { flex: 1; }
     button { padding: 8px 12px; cursor: pointer; }
 
-    #app { flex: 1; display: flex; min-height: 0; }
-    #left, #right { width: 50%; display: flex; flex-direction: column; min-height: 0; }
+    #app {
+      flex: 1;
+      display: flex;
+      min-height: 0;
+    }
+    #left, #right {
+      width: 50%;
+      display: flex;
+      flex-direction: column;
+      min-height: 0;
+    }
     #left { border-right: 1px solid #ddd; }
-    .pane-title { padding: 8px 12px; font-size: 14px; color: #444; border-bottom: 1px solid #eee; }
+    .pane-title {
+      padding: 8px 12px;
+      font-size: 14px;
+      color: #444;
+      border-bottom: 1px solid #eee;
+    }
 
-    /* Editor */
     #editorWrap { flex: 1; min-height: 0; }
     .CodeMirror { height: 100% !important; }
 
-    /* Terminal */
     #terminalWrap { flex: 1; min-height: 0; background: #0b0b0b; }
     #terminal { width: 100%; height: 100%; }
   </style>
@@ -50,12 +74,16 @@
 <div id="app">
   <section id="left">
     <div class="pane-title">main.py</div>
-    <div id="editorWrap"><textarea id="editor"></textarea></div>
+    <div id="editorWrap">
+      <textarea id="editor"></textarea>
+    </div>
   </section>
 
   <section id="right">
     <div class="pane-title">Console</div>
-    <div id="terminalWrap"><div id="terminal"></div></div>
+    <div id="terminalWrap">
+      <div id="terminal"></div>
+    </div>
   </section>
 </div>
 
@@ -65,68 +93,56 @@
   const runBtn = document.getElementById("run");
   const clearBtn = document.getElementById("clear");
   const statusEl = document.getElementById("status");
-  const setStatus = (s) => (statusEl.textContent = s);
+  const setStatus = (s) => statusEl.textContent = s;
 
-  // ---- Editor (CodeMirror 5)
+  /* ---------- Editor ---------- */
   if (!window.CodeMirror) {
-    setStatus("CodeMirror failed to load (CDN blocked?)");
+    setStatus("CodeMirror failed to load");
     throw new Error("CodeMirror missing");
   }
-  const cm = CodeMirror.fromTextArea(document.getElementById("editor"), {
-    mode: "python",
-    lineNumbers: true,
-    indentUnit: 4,
-    tabSize: 4
-  });
+
+  const cm = CodeMirror.fromTextArea(
+    document.getElementById("editor"),
+    {
+      mode: "python",
+      lineNumbers: true,
+      indentUnit: 4,
+      tabSize: 4
+    }
+  );
   cm.setSize(null, "100%");
 
-  // ---- Terminal (xterm)
+  /* ---------- Terminal ---------- */
   if (!window.Terminal) {
-    setStatus("xterm failed to load (CDN blocked?)");
-    throw new Error("xterm Terminal missing");
+    setStatus("xterm failed to load");
+    throw new Error("Terminal missing");
   }
 
   const term = new window.Terminal({
     convertEol: true,
     cursorBlink: true,
     fontSize: 14,
-    fontFamily: 'ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, "Liberation Mono", monospace',
+    fontFamily:
+      'ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, "Liberation Mono", monospace'
   });
 
-  // Fit addon: depending on UMD build, it may be FitAddon.FitAddon or just FitAddon
-  let fitAddon = null;
-  try {
-    const FitCtor =
-      (window.FitAddon && (window.FitAddon.FitAddon || window.FitAddon)) ||
-      (window.addonFit && (window.addonFit.FitAddon || window.addonFit)) ||
-      null;
-
-    if (FitCtor) {
-      fitAddon = new FitCtor();
-      term.loadAddon(fitAddon);
-    }
-  } catch {
-    // no fit; still works
-    fitAddon = null;
-  }
-
+  const fitAddon = new window.FitAddon.FitAddon();
+  term.loadAddon(fitAddon);
   term.open(document.getElementById("terminal"));
-  const doFit = () => { try { fitAddon?.fit?.(); } catch {} };
-  doFit();
-  window.addEventListener("resize", doFit);
+  fitAddon.fit();
+  window.addEventListener("resize", () => fitAddon.fit());
 
   clearBtn.onclick = () => term.reset();
 
-  // ---- Load main.py into editor
+  /* ---------- Load main.py ---------- */
   async function loadInitialCode() {
     try {
       const res = await fetch("./main.py", { cache: "no-store" });
-      if (!res.ok) throw new Error(`Could not load main.py (HTTP ${res.status})`);
+      if (!res.ok) throw new Error("main.py not found");
       cm.setValue(await res.text());
-    } catch (e) {
-      term.writeln(String(e));
+    } catch {
       cm.setValue(
-`print("main.py missing")
+`print("Hello!")
 name = input("Your name? ")
 print("Hi", name)
 `
@@ -134,74 +150,63 @@ print("Hi", name)
     }
   }
 
-  // ---- Single-window terminal input (Trinket-like)
-  let inputActive = false;
+  /* ---------- Terminal input handling ---------- */
   let inputBuffer = "";
   let inputResolver = null;
 
-  function termInput(promptText) {
-    inputActive = true;
+  function terminalInput(prompt) {
+    if (prompt) term.write(prompt);
     inputBuffer = "";
-    if (promptText) term.write(String(promptText));
-    return new Promise((resolve) => (inputResolver = resolve));
+    return new Promise(resolve => inputResolver = resolve);
   }
 
-  function finishInput(line) {
-    const resolve = inputResolver;
-    inputActive = false;
-    inputBuffer = "";
-    inputResolver = null;
-    if (resolve) resolve(line);
-  }
+  term.onData(data => {
+    if (!inputResolver) return;
 
-  term.onData((data) => {
-    if (!inputActive) return;
-
-    if (data === "\r") {               // Enter
+    if (data === "\r") {
       term.write("\r\n");
-      finishInput(inputBuffer);
+      inputResolver(inputBuffer);
+      inputResolver = null;
       return;
     }
-    if (data === "\u007F") {           // Backspace
+    if (data === "\u007F") {
       if (inputBuffer.length > 0) {
         inputBuffer = inputBuffer.slice(0, -1);
         term.write("\b \b");
       }
       return;
     }
-    if (data === "\u0003") {           // Ctrl+C
-      term.write("^C\r\n");
-      finishInput("");
-      return;
-    }
-    if (data < " " || data === "\u0000") return; // ignore other control chars
+    if (data < " ") return;
 
     inputBuffer += data;
     term.write(data);
   });
 
-  // ---- Pyodide
+  /* ---------- Pyodide ---------- */
   setStatus("Loading Python…");
   const pyodide = await loadPyodide();
 
-  // stdout/stderr -> terminal
-  pyodide.setStdout({ batched: (s) => term.writeln(s) });
-  pyodide.setStderr({ batched: (s) => term.writeln(s) });
+  pyodide.setStdout({ batched: s => term.writeln(s) });
+  pyodide.setStderr({ batched: s => term.writeln(s) });
 
-  // Provide async input() backed by the terminal
-  pyodide.globals.set("__term_input__", termInput);
+  pyodide.globals.set("__term_input__", terminalInput);
+
   await pyodide.runPythonAsync(`
 import builtins
 async def _input(prompt=""):
     return await __term_input__(str(prompt))
 builtins.input = _input
-  `.trim());
+`);
 
-  // Wrap user code so plain input() becomes await input()
   function wrapUserCode(src) {
     const transformed = src.replace(/(^|[^\w.])input\s*\(/g, "$1await input(");
     const indented = transformed.split("\n").map(l => "    " + l);
-    return ["async def __main__():", ...indented, "", "await __main__()"].join("\n");
+    return [
+      "async def __main__():",
+      ...indented,
+      "",
+      "await __main__()"
+    ].join("\n");
   }
 
   await loadInitialCode();
@@ -217,15 +222,14 @@ builtins.input = _input
       await pyodide.runPythonAsync(wrapUserCode(cm.getValue()));
       setStatus("Done");
     } catch (e) {
-      setStatus("Error");
       term.writeln(String(e));
+      setStatus("Error");
     } finally {
       runBtn.disabled = false;
       term.focus();
     }
   };
 
-  document.getElementById("terminalWrap").addEventListener("mousedown", () => term.focus());
   term.focus();
 </script>
 </body>
