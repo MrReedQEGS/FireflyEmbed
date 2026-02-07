@@ -1,0 +1,258 @@
+<!doctype html>
+<html>
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>Python Runner (Editor + Console)</title>
+
+  <!-- CodeMirror 5 -->
+  <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/codemirror@5.65.16/lib/codemirror.css">
+  <script src="https://cdn.jsdelivr.net/npm/codemirror@5.65.16/lib/codemirror.js"></script>
+  <script src="https://cdn.jsdelivr.net/npm/codemirror@5.65.16/mode/python/python.js"></script>
+  <script src="https://cdn.jsdelivr.net/npm/codemirror@5.65.16/addon/edit/matchbrackets.js"></script>
+  <script src="https://cdn.jsdelivr.net/npm/codemirror@5.65.16/addon/comment/comment.js"></script>
+
+  <style>
+    body { margin: 0; height: 100vh; display: flex; flex-direction: column; font-family: system-ui, sans-serif; }
+    header { display: flex; gap: 10px; align-items: center; padding: 10px 12px; border-bottom: 1px solid #ddd; }
+    #status { color: #666; font-size: 14px; }
+    .spacer { flex: 1; }
+    button { padding: 8px 12px; cursor: pointer; }
+
+    select {
+      padding: 8px 10px;
+      border: 1px solid #ccc;
+      border-radius: 8px;
+      background: white;
+      font-size: 14px;
+    }
+
+    #app { flex: 1; display: flex; min-height: 0; }
+    #left, #right { width: 50%; display: flex; flex-direction: column; min-height: 0; }
+    #left { border-right: 1px solid #ddd; }
+    .pane-title { padding: 8px 12px; font-size: 14px; color: #444; border-bottom: 1px solid #eee; }
+
+    /* Editor */
+    #editorWrap { flex: 1; min-height: 0; }
+    .CodeMirror { height: 100% !important; font-size: 14px; line-height: 1.4; }
+    .CodeMirror-gutters { border-right: 1px solid #eee; }
+
+    /* Console */
+    #consoleWrap { flex: 1; min-height: 0; background: #0b0b0b; }
+    #console {
+      height: 100%;
+      padding: 12px;
+      overflow: auto;
+      color: #eaeaea;
+      font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, "Liberation Mono", monospace;
+      font-size: 14px;
+      line-height: 1.4;
+      white-space: pre-wrap;
+      word-break: break-word;
+      outline: none;
+      cursor: text;
+    }
+
+    .caret {
+      display: inline-block;
+      width: 8px;
+      margin-left: 1px;
+      background: #eaeaea;
+      animation: blink 1s steps(1) infinite;
+      vertical-align: -2px;
+      height: 1em;
+    }
+    @keyframes blink { 50% { opacity: 0; } }
+  </style>
+</head>
+
+<body>
+<header>
+  <label style="font-size:14px;color:#444;">Program:</label>
+  <select id="program" disabled></select>
+
+  <button id="run" disabled>Run ▶</button>
+  <button id="clear" disabled>Clear</button>
+
+  <div class="spacer"></div>
+  <div id="status">Loading…</div>
+</header>
+
+<div id="app">
+  <section id="left">
+    <div class="pane-title" id="filename">Editor</div>
+    <div id="editorWrap"><textarea id="editor"></textarea></div>
+  </section>
+
+  <section id="right">
+    <div class="pane-title">Console</div>
+    <div id="consoleWrap">
+      <div id="console" tabindex="0"></div>
+    </div>
+  </section>
+</div>
+
+<script type="module">
+  import { loadPyodide } from "https://cdn.jsdelivr.net/pyodide/v0.25.1/full/pyodide.mjs";
+
+  const runBtn = document.getElementById("run");
+  const clearBtn = document.getElementById("clear");
+  const statusEl = document.getElementById("status");
+  const consoleEl = document.getElementById("console");
+  const programSel = document.getElementById("program");
+  const filenameEl = document.getElementById("filename");
+
+  const setStatus = (s) => statusEl.textContent = s;
+
+  /* ---------- Console helpers (UNCHANGED CORE) ---------- */
+  function scrollConsole() { consoleEl.scrollTop = consoleEl.scrollHeight; }
+  function removeCaret() { consoleEl.querySelector(".caret")?.remove(); }
+  function renderCaret() {
+    removeCaret();
+    const c = document.createElement("span");
+    c.className = "caret";
+    consoleEl.appendChild(c);
+  }
+  function write(s="") {
+    removeCaret();
+    consoleEl.textContent += s;
+    if (inputActive) renderCaret();
+    scrollConsole();
+  }
+  function writeln(s="") { write(s + "\n"); }
+  function clearConsole() { consoleEl.textContent = ""; }
+
+  clearBtn.onclick = () => { clearConsole(); consoleEl.focus(); };
+
+  /* ---------- Editor ---------- */
+  const cm = CodeMirror.fromTextArea(document.getElementById("editor"), {
+    mode: "python",
+    lineNumbers: true,
+    indentUnit: 4,
+    tabSize: 4,
+    smartIndent: true,
+    matchBrackets: true,
+    extraKeys: {
+      "Tab": cm => cm.replaceSelection("    ", "end"),
+      "Shift-Tab": cm => cm.indentSelection("subtract")
+    }
+  });
+  cm.setSize(null, "100%");
+
+  /* ---------- Inline input (UNCHANGED CORE) ---------- */
+  let inputActive = false;
+  let inputBuffer = "";
+  let inputResolve = null;
+
+  function beginInput(prompt) {
+    inputActive = true;
+    inputBuffer = "";
+    if (prompt) write(String(prompt));
+    renderCaret();
+    consoleEl.focus();
+    return new Promise(resolve => inputResolve = resolve);
+  }
+
+  function finishInput() {
+    inputActive = false;
+    removeCaret();
+    inputResolve?.(inputBuffer);
+    inputResolve = null;
+  }
+
+  consoleEl.addEventListener("keydown", (e) => {
+    if (!inputActive) return;
+    e.preventDefault();
+
+    if (e.key === "Enter") {
+      write("\n");
+      finishInput();
+    } else if (e.key === "Backspace") {
+      if (inputBuffer.length) {
+        inputBuffer = inputBuffer.slice(0, -1);
+        removeCaret();
+        consoleEl.textContent = consoleEl.textContent.slice(0, -1);
+        renderCaret();
+      }
+    } else if (e.key.length === 1) {
+      inputBuffer += e.key;
+      write(e.key);
+    }
+  });
+
+  consoleEl.addEventListener("mousedown", () => consoleEl.focus());
+
+  function wrapUserCode(src) {
+    const t = src.replace(/(^|[^\w.])input\s*\(/g, "$1await input(");
+    const i = t.split("\n").map(l => "    " + l);
+    return ["async def __main__():", ...i, "", "await __main__()"].join("\n");
+  }
+
+  /* ---------- Program loader (JSON-driven) ---------- */
+  async function loadProgramList() {
+    const res = await fetch("./programs.json", { cache: "no-store" });
+    const files = await res.json();
+    programSel.innerHTML = "";
+    for (const f of files) {
+      const opt = document.createElement("option");
+      opt.value = f;
+      opt.textContent = f;
+      programSel.appendChild(opt);
+    }
+    return files[0];
+  }
+
+  async function loadProgram(file) {
+    if (inputActive) finishInput();
+    clearConsole();
+    setStatus("Loading " + file + "…");
+
+    const res = await fetch("./" + file, { cache: "no-store" });
+    cm.setValue(await res.text());
+    filenameEl.textContent = file;
+    setStatus("Ready");
+  }
+
+  programSel.addEventListener("change", () => loadProgram(programSel.value));
+
+  /* ---------- Pyodide ---------- */
+  setStatus("Loading Python…");
+  const pyodide = await loadPyodide();
+
+  pyodide.setStdout({ batched: s => writeln(s) });
+  pyodide.setStderr({ batched: s => writeln(s) });
+
+  pyodide.globals.set("__console_input__", beginInput);
+  await pyodide.runPythonAsync(`
+import builtins
+async def _input(prompt=""):
+    return await __console_input__(str(prompt))
+builtins.input = _input
+  `);
+
+  const first = await loadProgramList();
+  await loadProgram(first);
+
+  runBtn.disabled = false;
+  clearBtn.disabled = false;
+  programSel.disabled = false;
+
+  runBtn.onclick = async () => {
+    runBtn.disabled = true;
+    setStatus("Running…");
+    try {
+      await pyodide.runPythonAsync(wrapUserCode(cm.getValue()));
+      setStatus("Done");
+    } catch (e) {
+      setStatus("Error");
+      writeln(String(e));
+    } finally {
+      runBtn.disabled = false;
+      consoleEl.focus();
+    }
+  };
+
+  consoleEl.focus();
+</script>
+</body>
+</html>
