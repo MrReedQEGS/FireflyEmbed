@@ -86,10 +86,8 @@
   <button id="run" disabled>Run ▶</button>
   <button id="reload" disabled>Reload ↻</button>
 
-  <!-- Replaces Download -->
   <button id="save" disabled>Save</button>
   <button id="saveAs" disabled>Save As…</button>
-
   <button id="upload" disabled>Upload</button>
 
   <div class="spacer"></div>
@@ -114,7 +112,6 @@
   </section>
 </div>
 
-<!-- Fallback picker for browsers without File System Access API -->
 <input id="fileInput" type="file" accept=".txt,.py" style="display:none" />
 
 <script type="module">
@@ -131,7 +128,6 @@
   const programSel = document.getElementById("program");
   const filenameEl = document.getElementById("filename");
   const consoleEl = document.getElementById("console");
-
   const fileInput = document.getElementById("fileInput");
 
   const setStatus = (s) => statusEl.textContent = s;
@@ -226,14 +222,9 @@
   let currentFile = null;
   let previousSelectValue = null;
 
-  // originals: for “is code changed?” comparisons
-  const originals = new Map();
-
-  // uploadedText: store uploaded files in memory (so switching back works)
-  const uploadedText = new Map();
-
-  // fileHandles: if opened via File System Access API, we can Save back over it
-  const fileHandles = new Map(); // name -> FileSystemFileHandle
+  const originals = new Map();     // filename -> last-saved/loaded text
+  const uploadedText = new Map();  // filename -> current uploaded text
+  const fileHandles = new Map();   // filename -> FileSystemFileHandle
 
   function getEditorText() {
     return cm.getValue().replace(/\r\n/g, "\n");
@@ -257,12 +248,17 @@
     if (!exists) programSel.add(new Option(name, name));
   }
 
-  function setSaveEnabledForCurrent() {
-    // Save only truly works (overwrite) if we have a handle for currentFile
-    saveBtn.disabled = !(currentFile && fileHandles.has(currentFile));
-    // Save As is always available; will fallback to download if no FS API
+  function setSaveButtons() {
+    // Save: only if we have a handle AND the code has changed
+    const canSave = !!(currentFile && fileHandles.has(currentFile) && isDirtyAgainstOriginal());
+    saveBtn.disabled = !canSave;
+
+    // Save As: always available (fallback to download when FS API unavailable)
     saveAsBtn.disabled = false;
   }
+
+  // update save button as user types
+  cm.on("change", () => setSaveButtons());
 
   async function loadProgramList() {
     const res = await fetch("./programs.json", { cache: "no-store" });
@@ -278,7 +274,6 @@
   }
 
   async function loadProgram(file) {
-    // cancel any waiting input and reset UI
     if (inputActive) {
       inputBuffer = "";
       finishInput();
@@ -290,7 +285,6 @@
 
     let text;
     if (fileHandles.has(file)) {
-      // reload from disk (if opened/saved with a handle)
       text = await readFromHandle(fileHandles.get(file));
       uploadedText.set(file, text);
       originals.set(file, text);
@@ -313,7 +307,7 @@
     if (uploadedText.has(file)) setStatus(fileHandles.has(file) ? "Ready (opened)" : "Ready (uploaded)");
     else setStatus("Ready");
 
-    setSaveEnabledForCurrent();
+    setSaveButtons();
     consoleEl.focus();
   }
 
@@ -357,6 +351,7 @@
 
   saveBtn.addEventListener("click", async () => {
     if (!currentFile || !fileHandles.has(currentFile)) return;
+    if (!isDirtyAgainstOriginal()) return;
 
     try {
       setStatus("Saving…");
@@ -370,7 +365,7 @@
       originals.set(currentFile, newText);
 
       setStatus("Saved");
-      setSaveEnabledForCurrent();
+      setSaveButtons();
     } catch (e) {
       setStatus("Save failed");
       writeln(String(e));
@@ -381,15 +376,16 @@
     try {
       if (!hasFS) {
         fallbackDownloadAsTxt();
+        // treat downloaded content as “saved snapshot” so Save stays off
+        if (currentFile) originals.set(currentFile, cm.getValue());
         setStatus("Saved (downloaded)");
+        setSaveButtons();
         return;
       }
 
       const handle = await window.showSaveFilePicker({
         suggestedName: suggestedTxtNameFromCurrent(),
-        types: [
-          { description: "Text files", accept: { "text/plain": [".txt"] } }
-        ]
+        types: [{ description: "Text files", accept: { "text/plain": [".txt"] } }]
       });
 
       setStatus("Saving…");
@@ -397,7 +393,6 @@
       await writable.write(cm.getValue());
       await writable.close();
 
-      // After Save As…, we can now Save to the same location too
       if (currentFile) {
         fileHandles.set(currentFile, handle);
         const newText = cm.getValue();
@@ -406,11 +401,10 @@
       }
 
       setStatus("Saved");
-      setSaveEnabledForCurrent();
+      setSaveButtons();
     } catch (e) {
-      // user cancel is fine
       if (String(e).includes("AbortError")) {
-        setStatus(uploadedText.has(currentFile) ? "Ready (uploaded)" : "Ready");
+        setStatus(uploadedText.has(currentFile) ? (fileHandles.has(currentFile) ? "Ready (opened)" : "Ready (uploaded)") : "Ready");
         return;
       }
       setStatus("Save As failed");
@@ -422,9 +416,7 @@
   async function openWithFSAccessPicker() {
     const [handle] = await window.showOpenFilePicker({
       multiple: false,
-      types: [
-        { description: "Python or Text", accept: { "text/plain": [".txt"], "text/x-python": [".py"], "application/octet-stream": [".py"] } }
-      ]
+      types: [{ description: "Python or Text", accept: { "text/plain": [".txt"], "text/x-python": [".py"], "application/octet-stream": [".py"] } }]
     });
 
     const file = await handle.getFile();
@@ -441,17 +433,16 @@
     setStatus("Ready (opened)");
   }
 
-  async function openWithFallbackInput() {
-    fileInput.value = "";
-    fileInput.click();
-  }
-
   uploadBtn.addEventListener("click", async () => {
     if (!confirmDiscardIfDirty("Uploading a file")) return;
 
     try {
-      if (hasFS) await openWithFSAccessPicker();
-      else await openWithFallbackInput();
+      if (hasFS) {
+        await openWithFSAccessPicker();
+      } else {
+        fileInput.value = "";
+        fileInput.click();
+      }
     } catch (e) {
       if (String(e).includes("AbortError")) return;
       setStatus("Upload failed");
@@ -463,14 +454,6 @@
     const file = fileInput.files && fileInput.files[0];
     if (!file) return;
 
-    // cancel any waiting input
-    if (inputActive) {
-      inputBuffer = "";
-      finishInput();
-    }
-    removeCaret();
-    clearConsole();
-
     const rawName = file.name || "uploaded.txt";
     const internalName = rawName.replace(/\.(txt|py)$/i, ".py");
     const text = await file.text();
@@ -481,9 +464,7 @@
 
     await loadProgram(internalName);
     setStatus("Ready (uploaded)");
-
-    // no handle available -> Save disabled
-    setSaveEnabledForCurrent();
+    setSaveButtons();
   });
 
   /* ---------- Pyodide ---------- */
@@ -501,18 +482,17 @@ async def _input(prompt=""):
 builtins.input = _input
   `);
 
-  // UI ready
   runBtn.disabled = false;
   reloadBtn.disabled = false;
   clearBtn.disabled = false;
   programSel.disabled = false;
-  saveBtn.disabled = true;     // enabled when file handle exists
+  saveBtn.disabled = true;
   saveAsBtn.disabled = false;
   uploadBtn.disabled = false;
 
   const first = await loadProgramList();
   await loadProgram(first);
-  setSaveEnabledForCurrent();
+  setSaveButtons();
 
   /* ---------- Run ---------- */
   runBtn.onclick = async () => {
