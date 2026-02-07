@@ -12,7 +12,7 @@ function post(type, data = {}) {
 function toPlainObject(x) {
   // PyProxy with toJs()
   if (x && typeof x === "object" && typeof x.toJs === "function") {
-    // Use dict_converter so Python dict -> plain object
+    // dict_converter turns Python dicts into plain objects
     const converted = x.toJs({ dict_converter: Object.fromEntries });
     return toPlainObject(converted);
   }
@@ -81,10 +81,18 @@ class _WebTurtle:
         self._pendown = True
         self._pencolor = "#00ff66"
         self._pensize = 2.0
+        self._speed = 0      # 0 = fastest (like real turtle)
 
     def _line_to(self, nx, ny):
         if self._pendown:
-            _cmd(type="line", x1=self.x, y1=self.y, x2=nx, y2=ny, color=self._pencolor, width=self._pensize)
+            _cmd(
+                type="line",
+                x1=self.x, y1=self.y,
+                x2=nx, y2=ny,
+                color=self._pencolor,
+                width=self._pensize,
+                speed=self._speed
+            )
         self.x, self.y = nx, ny
 
     def forward(self, d):
@@ -107,6 +115,9 @@ class _WebTurtle:
             x, y = x
         self._line_to(float(x), float(y))
 
+    def setpos(self, x, y=None):
+        self.goto(x, y)
+
     def penup(self): self._pendown = False
     def pendown(self): self._pendown = True
 
@@ -117,6 +128,17 @@ class _WebTurtle:
     def pensize(self, w=None):
         if w is None: return self._pensize
         self._pensize = float(w)
+
+    def speed(self, s=None):
+        if s is None:
+            return self._speed
+        try:
+            s = int(s)
+        except:
+            return
+        if s < 0: s = 0
+        if s > 10: s = 10
+        self._speed = s
 
     def clear(self): _cmd(type="clear")
     def bgcolor(self, c): _cmd(type="bg", color=str(c))
@@ -147,7 +169,7 @@ def lt(a): _T.left(a)
 def right(a): _T.right(a)
 def rt(a): _T.right(a)
 def goto(x, y=None): _T.goto(x, y)
-def setpos(x, y=None): _T.goto(x, y)
+def setpos(x, y=None): _T.setpos(x, y)   # added
 def penup(): _T.penup()
 def pu(): _T.penup()
 def pendown(): _T.pendown()
@@ -155,6 +177,7 @@ def pd(): _T.pendown()
 def pencolor(c=None): return _T.pencolor(c)
 def pensize(w=None): return _T.pensize(w)
 def width(w=None): return _T.pensize(w)
+def speed(s=None): return _T.speed(s)    # added
 def clear(): _T.clear()
 def bgcolor(c): _T.bgcolor(c)
 def home(): _T.home()
