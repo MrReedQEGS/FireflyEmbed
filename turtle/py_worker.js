@@ -8,6 +8,35 @@ function post(type, data = {}) {
   self.postMessage({ type, ...data });
 }
 
+// Convert Pyodide proxies / Maps / dicts into a plain JS object
+function toPlainObject(x) {
+  // PyProxy with toJs()
+  if (x && typeof x === "object" && typeof x.toJs === "function") {
+    // Use dict_converter so Python dict -> plain object
+    const converted = x.toJs({ dict_converter: Object.fromEntries });
+    return toPlainObject(converted);
+  }
+
+  // Map -> object
+  if (x instanceof Map) {
+    return Object.fromEntries(x.entries());
+  }
+
+  // Array -> recurse
+  if (Array.isArray(x)) {
+    return x.map(toPlainObject);
+  }
+
+  // Plain object -> recurse values
+  if (x && typeof x === "object") {
+    const out = {};
+    for (const [k, v] of Object.entries(x)) out[k] = toPlainObject(v);
+    return out;
+  }
+
+  return x;
+}
+
 async function ensurePyodide() {
   if (pyodide) return;
 
@@ -23,9 +52,9 @@ async function ensurePyodide() {
     return new Promise(resolve => { pendingInputResolve = resolve; });
   });
 
-  // Canvas bridge: Python -> worker JS -> UI
+  // Canvas bridge: Python -> worker -> UI
   pyodide.globals.set("__canvas_cmd__", (obj) => {
-    const cmd = obj?.toJs ? obj.toJs() : obj;
+    const cmd = toPlainObject(obj);
     post("canvas_cmd", { cmd });
   });
 
@@ -142,7 +171,7 @@ class Screen:
 # Create module object "turtle"
 turtle = types.ModuleType("turtle")
 for _name, _obj in list(globals().items()):
-    if _name.startswith("_"): 
+    if _name.startswith("_"):
         continue
     setattr(turtle, _name, _obj)
 
@@ -169,7 +198,7 @@ self.onmessage = async (ev) => {
     if (msg.type === "run") {
       await ensurePyodide();
 
-      // Trinket-like: reset turtle each run
+      // reset turtle each run (Trinket-like)
       post("canvas_cmd", { cmd: { type: "clear" } });
       post("canvas_cmd", { cmd: { type: "bg", color: "#111111" } });
       await pyodide.runPythonAsync(`import turtle; turtle.reset()`);
