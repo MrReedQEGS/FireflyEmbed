@@ -18,29 +18,10 @@
     #status { color: #666; font-size: 14px; }
     .spacer { flex: 1; }
     button { padding: 6px 12px; cursor: pointer; }
+    select { padding: 6px 10px; border: 1px solid #ccc; border-radius: 8px; background: white; font-size: 14px; }
 
-    select {
-      padding: 6px 10px;
-      border: 1px solid #ccc;
-      border-radius: 8px;
-      background: white;
-      font-size: 14px;
-    }
-
-    #app {
-      flex: 1;
-      display: flex;
-      min-height: 0;
-      width: 100%;
-    }
-
-    #left, #right {
-      display: flex;
-      flex-direction: column;
-      min-height: 0;
-      flex: 1 1 0;
-      min-width: 220px;
-    }
+    #app { flex: 1; display: flex; min-height: 0; width: 100%; }
+    #left, #right { display: flex; flex-direction: column; min-height: 0; flex: 1 1 0; min-width: 220px; }
 
     .pane-title {
       padding: 6px 12px;
@@ -53,7 +34,6 @@
     }
     .pane-title .spacer { flex: 1; }
 
-    /* Draggable splitter */
     #splitter {
       width: 8px;
       cursor: col-resize;
@@ -66,12 +46,10 @@
     }
     #splitter:hover { background: #e9e9e9; }
 
-    /* Editor */
     #editorWrap { flex: 1; min-height: 0; }
     .CodeMirror { height: 100% !important; font-size: 14px; line-height: 1.4; }
     .CodeMirror-gutters { border-right: 1px solid #eee; }
 
-    /* Console */
     #consoleWrap { flex: 1; min-height: 0; background: #0b0b0b; }
     #console {
       height: 100%;
@@ -107,6 +85,7 @@
   <select id="program" disabled></select>
 
   <button id="run" disabled>Run ▶</button>
+  <button id="stop" disabled>Stop ■</button>
   <button id="reload" disabled>Reload ↻</button>
 
   <button id="newFile" disabled>New…</button>
@@ -141,9 +120,8 @@
 <input id="fileInput" type="file" accept=".txt,.py" style="display:none" />
 
 <script type="module">
-  import { loadPyodide } from "https://cdn.jsdelivr.net/pyodide/v0.25.1/full/pyodide.mjs";
-
   const runBtn = document.getElementById("run");
+  const stopBtn = document.getElementById("stop");
   const reloadBtn = document.getElementById("reload");
   const newBtn = document.getElementById("newFile");
   const saveBtn = document.getElementById("save");
@@ -163,8 +141,6 @@
   const app = document.getElementById("app");
 
   const setStatus = (s) => statusEl.textContent = s;
-
-  const hasFS = ("showOpenFilePicker" in window) && ("showSaveFilePicker" in window);
 
   /* ---------- Console helpers ---------- */
   function scrollConsole() { consoleEl.scrollTop = consoleEl.scrollHeight; }
@@ -201,64 +177,57 @@
   });
   cm.setSize(null, "100%");
 
-  /* ---------- Splitter (drag resize) ---------- */
+  /* ---------- Splitter ---------- */
   let dragging = false;
-
   function setLeftWidth(px) {
     const total = app.getBoundingClientRect().width;
     const minLeft = 220;
     const minRight = 220;
     const maxLeft = total - 8 - minRight;
     const clamped = Math.max(minLeft, Math.min(px, maxLeft));
-
     leftPane.style.flex = `0 0 ${clamped}px`;
     rightPane.style.flex = `1 1 0`;
-
     cm.refresh();
   }
-
   splitter.addEventListener("pointerdown", (e) => {
     dragging = true;
     splitter.setPointerCapture(e.pointerId);
     document.body.style.cursor = "col-resize";
     document.body.style.userSelect = "none";
   });
-
   splitter.addEventListener("pointermove", (e) => {
     if (!dragging) return;
     const rect = app.getBoundingClientRect();
-    const x = e.clientX - rect.left;
-    setLeftWidth(x);
+    setLeftWidth(e.clientX - rect.left);
   });
-
   splitter.addEventListener("pointerup", (e) => {
     dragging = false;
     try { splitter.releasePointerCapture(e.pointerId); } catch {}
     document.body.style.cursor = "";
     document.body.style.userSelect = "";
   });
-
   window.addEventListener("resize", () => cm.refresh());
 
-  /* ---------- Inline input ---------- */
+  /* ---------- Inline input (UI side) ---------- */
   let inputActive = false;
   let inputBuffer = "";
-  let inputResolve = null;
+  let waitingForInput = false;
 
   function beginInput(prompt) {
     inputActive = true;
     inputBuffer = "";
+    waitingForInput = true;
     if (prompt) write(String(prompt));
     renderCaret();
     consoleEl.focus();
-    return new Promise(resolve => inputResolve = resolve);
   }
 
-  function finishInput() {
+  function cancelInputIfAny() {
+    if (!waitingForInput) return;
     inputActive = false;
+    waitingForInput = false;
     removeCaret();
-    inputResolve?.(inputBuffer);
-    inputResolve = null;
+    worker?.postMessage({ type: "input_response", text: "" });
   }
 
   consoleEl.addEventListener("keydown", (e) => {
@@ -267,7 +236,10 @@
 
     if (e.key === "Enter") {
       write("\n");
-      finishInput();
+      inputActive = false;
+      waitingForInput = false;
+      removeCaret();
+      worker?.postMessage({ type: "input_response", text: inputBuffer });
     } else if (e.key === "Backspace") {
       if (inputBuffer.length) {
         inputBuffer = inputBuffer.slice(0, -1);
@@ -280,16 +252,9 @@
       write(e.key);
     }
   });
-
   consoleEl.addEventListener("mousedown", () => consoleEl.focus());
 
-  function wrapUserCode(src) {
-    const t = src.replace(/(^|[^\w.])input\s*\(/g, "$1await input(");
-    const i = t.split("\n").map(l => "    " + l);
-    return ["async def __main__():", ...i, "", "await __main__()"].join("\n");
-  }
-
-  /* ---------- Program loading + dirty check ---------- */
+  /* ---------- Program state ---------- */
   let currentFile = null;
   let previousSelectValue = null;
 
@@ -297,17 +262,11 @@
   const uploadedText = new Map();
   const fileHandles = new Map();
 
-  function getEditorText() {
-    return cm.getValue().replace(/\r\n/g, "\n");
-  }
-  function getOriginalText(file) {
-    const t = originals.get(file);
-    return (t ?? "").replace(/\r\n/g, "\n");
-  }
-  function isDirtyAgainstOriginal() {
-    if (!currentFile) return false;
-    return getEditorText() !== getOriginalText(currentFile);
-  }
+  const hasFS = ("showOpenFilePicker" in window) && ("showSaveFilePicker" in window);
+
+  function getEditorText() { return cm.getValue().replace(/\r\n/g, "\n"); }
+  function getOriginalText(file) { return (originals.get(file) ?? "").replace(/\r\n/g, "\n"); }
+  function isDirtyAgainstOriginal() { return !!currentFile && getEditorText() !== getOriginalText(currentFile); }
 
   function confirmDiscardIfDirty(actionName) {
     if (!isDirtyAgainstOriginal()) return true;
@@ -339,14 +298,66 @@
     return await f.text();
   }
 
-  async function loadProgram(file) {
-    if (inputActive) {
-      inputBuffer = "";
-      finishInput();
+  /* ---------- Worker run control ---------- */
+  let worker = null;
+  let running = false;
+
+  function makeWorker() {
+    const w = new Worker("./py_worker.js", { type: "module" });
+    w.onmessage = (ev) => {
+      const m = ev.data || {};
+      if (m.type === "stdout") writeln(m.text ?? "");
+      if (m.type === "stderr") writeln(m.text ?? "");
+      if (m.type === "status") setStatus(m.text ?? "");
+      if (m.type === "ready") {
+        setStatus("Ready");
+        runBtn.disabled = false;
+        stopBtn.disabled = true;
+      }
+      if (m.type === "done") {
+        running = false;
+        runBtn.disabled = false;
+        stopBtn.disabled = true;
+        setStatus("Done");
+      }
+      if (m.type === "error") {
+        running = false;
+        runBtn.disabled = false;
+        stopBtn.disabled = true;
+        setStatus("Error");
+        writeln(String(m.text ?? ""));
+      }
+      if (m.type === "input_request") {
+        beginInput(m.prompt ?? "");
+      }
+    };
+    w.postMessage({ type: "init" });
+    return w;
+  }
+
+  function stopExecution(reason = "Stopped") {
+    if (running || waitingForInput) {
+      cancelInputIfAny();
+      try { worker?.terminate(); } catch {}
+      worker = makeWorker();
+      running = false;
+      runBtn.disabled = false;
+      stopBtn.disabled = true;
+      setStatus(reason);
     }
+  }
+
+  // Stop button
+  stopBtn.addEventListener("click", () => stopExecution("Stopped"));
+
+  // start worker immediately
+  worker = makeWorker();
+
+  async function loadProgram(file) {
+    stopExecution("Stopped");
+
     removeCaret();
     clearConsole();
-
     setStatus("Loading " + file + "…");
 
     let text;
@@ -379,19 +390,11 @@
 
   programSel.addEventListener("change", async () => {
     const nextFile = programSel.value;
-
     if (!confirmDiscardIfDirty("Switching programs")) {
       programSel.value = previousSelectValue ?? currentFile ?? nextFile;
       return;
     }
-
-    try {
-      await loadProgram(nextFile);
-    } catch (e) {
-      setStatus("Load error");
-      writeln(String(e));
-      programSel.value = previousSelectValue ?? currentFile ?? nextFile;
-    }
+    await loadProgram(nextFile);
   });
 
   reloadBtn.addEventListener("click", async () => {
@@ -399,7 +402,6 @@
     await loadProgram(programSel.value);
   });
 
-  /* ---------- New… ---------- */
   function normaliseNewName(name) {
     const trimmed = (name || "").trim();
     if (!trimmed) return null;
@@ -410,10 +412,10 @@
 
   newBtn.addEventListener("click", async () => {
     if (!confirmDiscardIfDirty("Creating a new file")) return;
+    stopExecution("Stopped");
 
     const entered = prompt("New file name (e.g. my_program):", "my_program");
     if (entered === null) return;
-
     const newName = normaliseNewName(entered);
     if (!newName) return;
 
@@ -427,12 +429,11 @@
     setSaveButtons();
   });
 
-  /* ---------- Save / Save As ---------- */
+  /* ---------- Save / Save As (same as before) ---------- */
   function suggestedTxtNameFromCurrent() {
     const base = (currentFile || "program").replace(/\.py$/i, "");
     return base + ".txt";
   }
-
   function fallbackDownloadAsTxt() {
     const name = suggestedTxtNameFromCurrent();
     const blob = new Blob([cm.getValue()], { type: "text/plain" });
@@ -496,10 +497,7 @@
       setStatus("Saved");
       setSaveButtons();
     } catch (e) {
-      if (String(e).includes("AbortError")) {
-        setStatus(uploadedText.has(currentFile) ? (fileHandles.has(currentFile) ? "Ready (opened)" : "Ready (uploaded)") : "Ready");
-        return;
-      }
+      if (String(e).includes("AbortError")) return;
       setStatus("Save As failed");
       writeln(String(e));
     }
@@ -528,6 +526,7 @@
 
   uploadBtn.addEventListener("click", async () => {
     if (!confirmDiscardIfDirty("Uploading a file")) return;
+    stopExecution("Stopped");
 
     try {
       if (hasFS) {
@@ -547,6 +546,8 @@
     const file = fileInput.files && fileInput.files[0];
     if (!file) return;
 
+    stopExecution("Stopped");
+
     const rawName = file.name || "uploaded.txt";
     const internalName = rawName.replace(/\.(txt|py)$/i, ".py");
     const text = await file.text();
@@ -560,22 +561,23 @@
     setSaveButtons();
   });
 
-  /* ---------- Pyodide ---------- */
-  setStatus("Loading Python…");
-  const pyodide = await loadPyodide();
+  /* ---------- Run ---------- */
+  runBtn.onclick = () => {
+    clearConsole();
+    if (!worker) worker = makeWorker();
+    running = true;
+    runBtn.disabled = true;
+    stopBtn.disabled = false;
+    setStatus("Running…");
+    worker.postMessage({ type: "run", code: cm.getValue() });
+    consoleEl.focus();
+  };
 
-  pyodide.setStdout({ batched: s => writeln(s) });
-  pyodide.setStderr({ batched: s => writeln(s) });
+  /* ---------- UI init ---------- */
+  const first = await loadProgramList();
+  await loadProgram(first);
 
-  pyodide.globals.set("__console_input__", beginInput);
-  await pyodide.runPythonAsync(`
-import builtins
-async def _input(prompt=""):
-    return await __console_input__(str(prompt))
-builtins.input = _input
-  `);
-
-  runBtn.disabled = false;
+  // enable UI (worker loads python separately)
   reloadBtn.disabled = false;
   newBtn.disabled = false;
   clearBtn.disabled = false;
@@ -583,26 +585,7 @@ builtins.input = _input
   saveBtn.disabled = true;
   saveAsBtn.disabled = false;
   uploadBtn.disabled = false;
-
-  const first = await loadProgramList();
-  await loadProgram(first);
-  setSaveButtons();
-
-  /* ---------- Run ---------- */
-  runBtn.onclick = async () => {
-    runBtn.disabled = true;
-    setStatus("Running…");
-    try {
-      await pyodide.runPythonAsync(wrapUserCode(cm.getValue()));
-      setStatus("Done");
-    } catch (e) {
-      setStatus("Error");
-      writeln(String(e));
-    } finally {
-      runBtn.disabled = false;
-      consoleEl.focus();
-    }
-  };
+  stopBtn.disabled = true;   // only enabled while running
 
   consoleEl.focus();
 </script>
