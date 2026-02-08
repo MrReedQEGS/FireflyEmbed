@@ -46,8 +46,7 @@
       touch-action: none;
     }
 
-    
-#hsplitter {
+    #hsplitter {
       height: 8px;
       cursor: row-resize;
       background: #f3f3f3;
@@ -63,7 +62,7 @@
       flex-direction: column;
       min-height: 160px;
     }
-#editorWrap { flex: 1; min-height: 0; }
+    #editorWrap { flex: 1; min-height: 0; }
     .CodeMirror { height: 100% !important; font-size: 14px; line-height: 1.4; }
     .CodeMirror-gutters { border-right: 1px solid #eee; }
 
@@ -94,6 +93,19 @@
       cursor: text;
       background: #0b0b0b;
       box-sizing: border-box;
+    }
+
+    /* ✅ Added: terminal caret (input mode only) */
+    .caret {
+      display: inline-block;
+      width: 8px;
+      height: 1.2em;
+      vertical-align: -0.2em;
+      background: currentColor;
+      animation: caretBlink 1s step-end infinite;
+    }
+    @keyframes caretBlink {
+      50% { opacity: 0; }
     }
   </style>
 </head>
@@ -134,14 +146,14 @@
     <div id="hsplitter" title="Drag to resize"></div>
 
     <div id="consolePane">
-    <div class="pane-title">
-      <span>Console</span>
-      <div class="spacer"></div>
-      <button id="clear">Clear console</button>
-    </div>
-    <div id="consoleWrap">
-      <div id="console" tabindex="0"></div>
-    </div>
+      <div class="pane-title">
+        <span>Console</span>
+        <div class="spacer"></div>
+        <button id="clear">Clear console</button>
+      </div>
+      <div id="consoleWrap">
+        <div id="console" tabindex="0"></div>
+      </div>
     </div>
 
   </section>
@@ -157,7 +169,6 @@
   const consoleEl = document.getElementById("console");
   const clearBtn = document.getElementById("clear");
 
-  
   const alphaSlider = document.getElementById("alphaSlider");
   const alphaVal = document.getElementById("alphaVal");
   let turtleAlpha = alphaSlider ? parseFloat(alphaSlider.value) : 0.25;
@@ -167,11 +178,11 @@
     alphaSlider.addEventListener("input", () => {
       turtleAlpha = parseFloat(alphaSlider.value);
       alphaVal.textContent = turtleAlpha.toFixed(2);
-      // Update turtle immediately
       redrawTurtle();
     });
   }
-const leftPane = document.getElementById("left");
+
+  const leftPane = document.getElementById("left");
   const rightPane = document.getElementById("right");
   const splitter = document.getElementById("splitter");
   const app = document.getElementById("app");
@@ -234,7 +245,6 @@ const leftPane = document.getElementById("left");
     document.body.style.userSelect = "";
   });
 
-
   /* ---------- Horizontal splitter (Turtle vs Console) ---------- */
   let hDragging = false;
 
@@ -251,7 +261,6 @@ const leftPane = document.getElementById("left");
 
     const clamped = Math.max(minStage, Math.min(px, maxStage));
 
-    // Fix stage height; let console take remaining space
     stageWrap.style.flex = `0 0 ${clamped}px`;
     consolePane.style.flex = "1 1 0";
 
@@ -321,7 +330,7 @@ const leftPane = document.getElementById("left");
 
   /* ---------- Canvas sizing ---------- */
   let currentBg = "#111111";
-  const strokes = []; // store completed turtle line strokes so resizing can redraw
+  const strokes = [];
 
   function fitOneCanvas(c, context) {
     const rect = c.getBoundingClientRect();
@@ -337,19 +346,15 @@ const leftPane = document.getElementById("left");
     ctx.fillRect(0, 0, rect.width, rect.height);
   }
 
-
   function redrawAll() {
-    // Clear background
     const rect = canvas.getBoundingClientRect();
     ctx.fillStyle = currentBg;
     ctx.fillRect(0, 0, rect.width, rect.height);
 
-    // Redraw stored strokes (in logical coordinates)
     for (const s of strokes) {
       drawSegment(s.x1, s.y1, s.x2, s.y2, s.color, s.width);
     }
 
-    // Turtle is on the overlay canvas
     redrawTurtle();
   }
 
@@ -378,7 +383,6 @@ const leftPane = document.getElementById("left");
   let lastLineWaitingForState = null;
   let lastKnownSpeed = 10;
 
-  // ✅ NEW: guarantee at least this many ticks for any non-zero-distance motion
   const MIN_TICKS_PER_SEGMENT = 8;
 
   function speedParams(speed) {
@@ -387,28 +391,20 @@ const leftPane = document.getElementById("left");
     if (s <= 0) return { instant: true, tickMs: 0, pxPerTick: Infinity };
     if (s > 10) s = 10;
 
-    // Trinket-like curve:
-    // - speed 1 stays slow (matches previous behavior)
-    // - speed 2 ~= old speed 10
-    // - smooth exponential ramp to "super fast" at speed 10
     let tickMs;
     if (s <= 2) {
-      // 1 -> 128ms, 2 -> 20ms
       tickMs = 128 + (20 - 128) * (s - 1);
     } else {
-      // 2 -> 20ms, 10 -> 1ms
-      const t = (s - 2) / 8;              // 0..1
-      tickMs = 20 * Math.pow(1 / 20, t);  // 20..1
+      const t = (s - 2) / 8;
+      tickMs = 20 * Math.pow(1 / 20, t);
     }
 
     let pxPerTick;
     if (s <= 2) {
-      // 1 -> 5px, 2 -> 28px
       pxPerTick = 5 + (28 - 5) * (s - 1);
     } else {
-      // 2 -> 28px, 10 -> 200px
-      const t = (s - 2) / 8;                  // 0..1
-      pxPerTick = 28 * Math.pow(200 / 28, t); // 28..200
+      const t = (s - 2) / 8;
+      pxPerTick = 28 * Math.pow(200 / 28, t);
     }
 
     return {
@@ -418,9 +414,7 @@ const leftPane = document.getElementById("left");
     };
   }
 
-  // ✅ NEW: cap pxPerTick based on distance so short lines still animate
   function effectivePxPerTick(dist, pxPerTick) {
-    // ensure at least MIN_TICKS_PER_SEGMENT steps for this distance
     const maxPxThisSegment = Math.max(1, dist / MIN_TICKS_PER_SEGMENT);
     return Math.min(pxPerTick, maxPxThisSegment);
   }
@@ -700,9 +694,126 @@ const leftPane = document.getElementById("left");
   }
 
   /* ---------- Console ---------- */
-  function writeln(s="") { consoleEl.textContent += s + "\n"; consoleEl.scrollTop = consoleEl.scrollHeight; }
-  function clearConsole() { consoleEl.textContent = ""; }
+
+  // ✅ Added: terminal-style input state + caret
+  let inputActive = false;
+  let inputBuffer = "";
+  let waitingForInput = false;
+  let caretEl = null;
+
+  function ensureCaret() {
+    if (caretEl && caretEl.isConnected) return;
+    caretEl = document.createElement("span");
+    caretEl.className = "caret";
+    consoleEl.appendChild(caretEl);
+  }
+
+  function removeCaret() {
+    if (caretEl && caretEl.isConnected) caretEl.remove();
+  }
+
+  function scrollConsoleToBottom() {
+    consoleEl.scrollTop = consoleEl.scrollHeight;
+  }
+
+  // Write without destroying DOM (so caret can exist)
+  function write(s = "") {
+    removeCaret();
+    if (s !== "") consoleEl.appendChild(document.createTextNode(String(s)));
+    if (inputActive) ensureCaret();
+    scrollConsoleToBottom();
+  }
+
+  function writeln(s = "") {
+    write(String(s) + "\n");
+  }
+
+  function clearConsole() {
+    consoleEl.textContent = "";
+    caretEl = null;
+    inputActive = false;
+    inputBuffer = "";
+    waitingForInput = false;
+  }
+
   clearBtn.onclick = () => { clearConsole(); consoleEl.focus(); };
+
+  function beginInput(prompt) {
+    inputActive = true;
+    inputBuffer = "";
+    waitingForInput = true;
+    if (prompt) write(String(prompt));
+    ensureCaret();
+    consoleEl.focus();
+  }
+
+  function cancelInputUI() {
+    inputActive = false;
+    inputBuffer = "";
+    waitingForInput = false;
+    removeCaret();
+  }
+
+  // Keep focus behavior like a console
+  consoleEl.addEventListener("pointerdown", () => consoleEl.focus());
+
+  // Terminal-like key handling
+  consoleEl.addEventListener("keydown", (e) => {
+    if (!inputActive) return;
+
+    // Let the browser handle copy/select shortcuts
+    if (e.ctrlKey || e.metaKey) {
+      if (e.key.toLowerCase() === "c" || e.key.toLowerCase() === "a") return;
+    }
+
+    e.preventDefault();
+
+    if (e.key === "Enter") {
+      write("\n");
+      inputActive = false;
+      waitingForInput = false;
+      removeCaret();
+      worker?.postMessage({ type: "input_response", text: inputBuffer });
+      inputBuffer = "";
+      return;
+    }
+
+    if (e.key === "Backspace") {
+      if (!inputBuffer.length) return;
+      inputBuffer = inputBuffer.slice(0, -1);
+
+      // Delete last visible character in the transcript
+      removeCaret();
+      const last = consoleEl.lastChild;
+      if (last && last.nodeType === Node.TEXT_NODE) {
+        last.textContent = last.textContent.slice(0, -1);
+        if (last.textContent.length === 0) last.remove();
+      } else if (last) {
+        // if something unexpected is last, fallback to textContent trim (rare)
+        consoleEl.textContent = consoleEl.textContent.slice(0, -1);
+      }
+      ensureCaret();
+      scrollConsoleToBottom();
+      return;
+    }
+
+    // Printable characters
+    if (e.key.length === 1) {
+      inputBuffer += e.key;
+      write(e.key);
+      return;
+    }
+  });
+
+  // ✅ Optional but helpful: paste into input
+  consoleEl.addEventListener("paste", (e) => {
+    if (!inputActive) return;
+    e.preventDefault();
+    const text = (e.clipboardData || window.clipboardData).getData("text");
+    if (!text) return;
+    inputBuffer += text;
+    write(text);
+  });
 
   /* ---------- Programs (simple) ---------- */
   let currentFile = null;
@@ -742,10 +853,10 @@ const leftPane = document.getElementById("left");
   let worker = null;
   let running = false;
 
-
   // Stop control flags
-  let acceptCanvas = true; // keep Stop responsive; gate drawing when stopped
-  let cancelToken = 0; // increments to cancel in-flight animations
+  let acceptCanvas = true;
+  let cancelToken = 0;
+
   function makeWorker() {
     const w = new Worker("./py_worker.js?v=cursor8", { type: "module" });
 
@@ -759,6 +870,11 @@ const leftPane = document.getElementById("left");
         handleCanvasCmd(m.cmd);
       }
 
+      // ✅ Added: respond to async input requests (seamless console model)
+      if (m.type === "input_request") {
+        beginInput(m.prompt ?? "");
+      }
+
       if (m.type === "ready") {
         setStatus("Ready");
         runBtn.disabled = false;
@@ -769,6 +885,7 @@ const leftPane = document.getElementById("left");
         runBtn.disabled = false;
         stopBtn.disabled = false;
         setStatus("Done");
+        cancelInputUI();
       }
       if (m.type === "error") {
         running = false;
@@ -776,6 +893,7 @@ const leftPane = document.getElementById("left");
         stopBtn.disabled = false;
         setStatus("Error");
         writeln(String(m.text ?? ""));
+        cancelInputUI();
       }
     };
 
@@ -784,9 +902,12 @@ const leftPane = document.getElementById("left");
   }
 
   function stopExecution(reason = "Stopped") {
-    // Stop should work even if Python has already finished but animation is still playing.
     acceptCanvas = false;
     resetQueues();
+
+    // ✅ Added: if we were in an input prompt, remove caret + stop capturing keys
+    cancelInputUI();
+
     writeln("Program stopped by user.");
     try { worker?.terminate(); } catch {}
     worker = makeWorker();
