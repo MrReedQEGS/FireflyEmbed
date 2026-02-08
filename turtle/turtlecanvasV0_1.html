@@ -95,34 +95,6 @@
       background: #0b0b0b;
       box-sizing: border-box;
     }
-
-#consoleInputRow {
-  display: none;
-  align-items: center;
-  gap: 8px;
-  padding: 8px;
-  border-top: 1px solid #222;
-  background: #0b0b0b;
-}
-#consolePrompt {
-  color: #bbb;
-  font-family: ui-monospace, monospace;
-  font-size: 13px;
-  white-space: pre;
-}
-#consoleInput {
-  flex: 1;
-  min-width: 80px;
-  background: #0b0b0b;
-  color: #eee;
-  border: 1px solid #333;
-  border-radius: 6px;
-  padding: 6px 8px;
-  font-family: ui-monospace, monospace;
-  font-size: 13px;
-  outline: none;
-}
-#consoleInput:focus { border-color: #555; }
   </style>
 </head>
 
@@ -169,7 +141,6 @@
     </div>
     <div id="consoleWrap">
       <div id="console" tabindex="0"></div>
-        <div id="consoleInputRow" aria-hidden="true"><span id="consolePrompt"></span><input id="consoleInput" type="text" autocomplete="off" /></div>
     </div>
     </div>
 
@@ -624,13 +595,12 @@ const leftPane = document.getElementById("left");
       if (item.kind === "state") {
         applyStateToTurtle(item.state);
         redrawTurtle();
-        markApplied(item.seq);
         next();
         return;
       }
 
       if (item.kind === "move") {
-        animateMove(item.from, item.to, item.speed, () => { markApplied(item.seq); next(); });
+        animateMove(item.from, item.to, item.speed, next);
         return;
       }
 
@@ -640,13 +610,7 @@ const leftPane = document.getElementById("left");
           animating = false;
           return;
         }
-        animateLine(item, () => {
-          const a = Number(item.seqLine);
-          const b = Number(item.seqEnd);
-          const mx = (Number.isFinite(a) ? a : 0) > (Number.isFinite(b) ? b : 0) ? a : b;
-          markApplied(mx);
-          next();
-        });
+        animateLine(item, next);
         return;
       }
     };
@@ -671,7 +635,6 @@ const leftPane = document.getElementById("left");
       resetQueues();
       canvasClear();
       redrawTurtle();
-      markApplied(cmd.seq);
       return;
     }
 
@@ -680,7 +643,6 @@ const leftPane = document.getElementById("left");
       resetQueues();
       canvasClear();
       redrawTurtle();
-      markApplied(cmd.seq);
       return;
     }
 
@@ -694,9 +656,7 @@ const leftPane = document.getElementById("left");
         color: cmd.color,
         width: cmd.width,
         speed: cmd.speed,
-        endState: null,
-        seqLine: cmd.seq,
-        seqEnd: null
+        endState: null
       };
 
       q.push(lineItem);
@@ -716,7 +676,6 @@ const leftPane = document.getElementById("left");
 
       if (lastLineWaitingForState && !lastLineWaitingForState.endState) {
         lastLineWaitingForState.endState = nextState;
-        lastLineWaitingForState.seqEnd = cmd.seq;
         lastLineWaitingForState = null;
         logicalState = nextState;
         runQueue();
@@ -729,9 +688,9 @@ const leftPane = document.getElementById("left");
       const colorChanged = nextState.pencolor !== logicalState.pencolor;
 
       if (moved) {
-        q.push({ kind: "move", from: logicalState, to: nextState, speed: lastKnownSpeed, seq: cmd.seq });
+        q.push({ kind: "move", from: logicalState, to: nextState, speed: lastKnownSpeed });
       } else if (headingChanged || visChanged || colorChanged) {
-        q.push({ kind: "state", state: nextState, seq: cmd.seq });
+        q.push({ kind: "state", state: nextState });
       }
 
       logicalState = nextState;
@@ -743,97 +702,6 @@ const leftPane = document.getElementById("left");
   /* ---------- Console ---------- */
   function writeln(s="") { consoleEl.textContent += s + "\n"; consoleEl.scrollTop = consoleEl.scrollHeight; }
   function clearConsole() { consoleEl.textContent = ""; }
-
-  /* ---------- Output sync (seq) ---------- */
-  const pendingOut = []; // {kind:"stdout"|"stderr", seq:number, text:string}
-  let appliedSeq = 0;
-
-  function flushOut() {
-    pendingOut.sort((a,b) => (a.seq ?? 0) - (b.seq ?? 0));
-    while (pendingOut.length) {
-      const n = pendingOut[0];
-      const s = Number(n.seq);
-      if (!Number.isFinite(s) || s <= appliedSeq) {
-        pendingOut.shift();
-        writeln(n.text ?? "");
-      } else {
-        break;
-      }
-    }
-  }
-
-  function markApplied(seq) {
-    const s = Number(seq);
-    if (!Number.isFinite(s)) return;
-    if (s > appliedSeq) appliedSeq = s;
-    flushOut();
-    flushInputs();
-  }
-
-  function resetSync() {
-    pendingOut.length = 0;
-    appliedSeq = 0;
-    pendingInputs.length = 0;
-    hideConsoleInput();
-  }
-
-
-  /* ---------- Input sync (seq) ---------- */
-  const pendingInputs = []; // {prompt, seq}
-  let waitingForInput = false;
-
-  const consoleInputRow = document.getElementById("consoleInputRow");
-  const consolePromptEl = document.getElementById("consolePrompt");
-  const consoleInputEl = document.getElementById("consoleInput");
-
-  function hideConsoleInput() {
-    waitingForInput = false;
-    consoleInputRow.style.display = "none";
-    consoleInputRow.setAttribute("aria-hidden", "true");
-    consolePromptEl.textContent = "";
-    consoleInputEl.value = "";
-  }
-
-  function showConsoleInput(promptText) {
-    waitingForInput = true;
-    consolePromptEl.textContent = String(promptText ?? "");
-    consoleInputRow.style.display = "flex";
-    consoleInputRow.setAttribute("aria-hidden", "false");
-    // Scroll to bottom and focus
-    requestAnimationFrame(() => {
-      consoleInputEl.focus();
-      const wrap = document.getElementById("consoleWrap");
-      wrap.scrollTop = wrap.scrollHeight;
-    });
-  }
-
-  function flushInputs() {
-    if (waitingForInput) return;
-    if (!pendingInputs.length) return;
-    pendingInputs.sort((a,b) => (a.seq ?? 0) - (b.seq ?? 0));
-    const next = pendingInputs[0];
-    const s = Number(next.seq);
-    if (!Number.isFinite(s) || s <= appliedSeq) {
-      pendingInputs.shift();
-      showConsoleInput(next.prompt);
-    }
-  }
-
-  consoleInputEl.addEventListener("keydown", (e) => {
-    if (e.key !== "Enter") return;
-    e.preventDefault();
-    if (!waitingForInput) return;
-
-    const value = consoleInputEl.value ?? "";
-    // Echo prompt + entered text into the console output (like real stdin)
-    const p = consolePromptEl.textContent ?? "";
-    writeln(String(p) + String(value));
-
-    hideConsoleInput();
-    try { worker?.postMessage({ type: "input_response", text: String(value) }); } catch {}
-    flushInputs();
-  });
-
   clearBtn.onclick = () => { clearConsole(); consoleEl.focus(); };
 
   /* ---------- Programs (simple) ---------- */
@@ -883,25 +751,12 @@ const leftPane = document.getElementById("left");
 
     w.onmessage = (ev) => {
       const m = ev.data || {};
-      if (m.type === "stdout") {
-        const s = Number(m.seq);
-        if (Number.isFinite(s)) { pendingOut.push({ kind: "stdout", seq: s, text: m.text ?? "" }); flushOut(); }
-        else writeln(m.text ?? "");
-      }
-      if (m.type === "stderr") {
-        const s = Number(m.seq);
-        if (Number.isFinite(s)) { pendingOut.push({ kind: "stderr", seq: s, text: m.text ?? "" }); flushOut(); }
-        else writeln(m.text ?? "");
-      }
+      if (m.type === "stdout") writeln(m.text ?? "");
+      if (m.type === "stderr") writeln(m.text ?? "");
       if (m.type === "status") setStatus(m.text ?? "");
       if (m.type === "canvas_cmd") {
         if (!acceptCanvas) return;
         handleCanvasCmd(m.cmd);
-      }
-
-      if (m.type === "input_request") {
-        pendingInputs.push({ prompt: m.prompt ?? "", seq: m.seq });
-        flushInputs();
       }
 
       if (m.type === "ready") {
@@ -947,7 +802,6 @@ const leftPane = document.getElementById("left");
   runBtn.onclick = () => {
     clearConsole();
     resetQueues();
-    resetSync();
     strokes.length = 0;
 
     currentBg = "#111111";
