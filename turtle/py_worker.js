@@ -3,7 +3,6 @@ import { loadPyodide } from "https://cdn.jsdelivr.net/pyodide/v0.25.1/full/pyodi
 
 let pyodide = null;
 let pendingInputResolve = null;
-let seq = 0; // global sequence counter for sync
 
 function post(type, data = {}) {
   self.postMessage({ type, ...data });
@@ -31,20 +30,18 @@ async function ensurePyodide() {
   post("status", { text: "Loading Python…" });
   pyodide = await loadPyodide();
 
-  pyodide.setStdout({ batched: s => post("stdout", { text: s, seq }) });
-  pyodide.setStderr({ batched: s => post("stderr", { text: s, seq }) });
+  pyodide.setStdout({ batched: s => post("stdout", { text: s }) });
+  pyodide.setStderr({ batched: s => post("stderr", { text: s }) });
 
   // async input() -> UI
   pyodide.globals.set("__worker_console_input__", (prompt) => {
-    post("input_request", { prompt: String(prompt ?? ""), seq });
+    post("input_request", { prompt: String(prompt ?? "") });
     return new Promise(resolve => { pendingInputResolve = resolve; });
   });
 
   // Canvas bridge: Python -> worker -> UI
   pyodide.globals.set("__canvas_cmd__", (obj) => {
     const cmd = toPlainObject(obj);
-    seq += 1;
-    cmd.seq = seq;
     post("canvas_cmd", { cmd });
   });
 
@@ -123,13 +120,8 @@ class _WebTurtle:
     def setposition(self, x, y=None):
         self.goto(x, y)
 
-    def penup(self):
-        self._pendown = False
-        _emit_state(self)
-
-    def pendown(self):
-        self._pendown = True
-        _emit_state(self)
+    def penup(self): self._pendown = False
+    def pendown(self): self._pendown = True
 
     def pencolor(self, c=None):
         if c is None: return self._pencolor
@@ -139,7 +131,6 @@ class _WebTurtle:
     def pensize(self, w=None):
         if w is None: return self._pensize
         self._pensize = float(w)
-        _emit_state(self)
 
     def speed(self, s=None):
         if s is None:
@@ -151,7 +142,6 @@ class _WebTurtle:
         if s < 0: s = 0
         if s > 10: s = 10
         self._speed = s
-        _emit_state(self)
 
     def hideturtle(self):
         self._visible = False
@@ -258,12 +248,9 @@ self.onmessage = async (ev) => {
     if (msg.type === "run") {
       await ensurePyodide();
 
-      // reset sequence counter each run
-      seq = 0;
-
       // reset turtle each run (Trinket-like)
-      seq += 1; post("canvas_cmd", { cmd: { type: "clear", seq } });
-      seq += 1; post("canvas_cmd", { cmd: { type: "bg", color: "#111111", seq } });
+      post("canvas_cmd", { cmd: { type: "clear" } });
+      post("canvas_cmd", { cmd: { type: "bg", color: "#111111" } });
       await pyodide.runPythonAsync(`import turtle; turtle.reset()`);
 
       post("status", { text: "Running…" });
