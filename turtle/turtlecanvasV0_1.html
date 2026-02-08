@@ -620,7 +620,8 @@ timer = setTimeout(step, tickMs);
       if (m.type === "ready") {
         setStatus("Ready");
         runBtn.disabled = false;
-        stopBtn.disabled = true;
+        // If a run was started while Python was still loading, don't re-disable Stop.
+        if (!running) stopBtn.disabled = true;
       }
       if (m.type === "done") {
         running = false;
@@ -685,7 +686,7 @@ timer = setTimeout(step, tickMs);
     const first = await loadProgramList();
     await loadProgram(first);
     programSel.disabled = false;
-    runBtn.disabled = false;
+    runBtn.disabled = true;
     reloadBtn.disabled = false;
     stopBtn.disabled = true;
     setStatus("Ready");
