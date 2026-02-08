@@ -4,6 +4,7 @@
 #Initialise the turtle
 import turtle
 bob = turtle.Turtle()
+bob.speed(7)
 
 dist = 5
 for i in range(100):
