@@ -297,7 +297,7 @@ self.onmessage = async (ev) => {
       // reset turtle each run (Trinket-like)
       post("canvas_cmd", { cmd: { type: "clear" } });
       post("canvas_cmd", { cmd: { type: "bg", color: "#111111" } });
-      await pyodide.runPythonAsync(`import turtle; turtle.reset()`);
+      await pyodide.runPythonAsync(`import turtle; turtle.reset(); turtle.tracer(1)`);
 
       post("status", { text: "Running…" });
       const code = wrapUserCode(msg.code ?? "");
