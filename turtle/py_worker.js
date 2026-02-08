@@ -36,7 +36,7 @@ async function ensurePyodide() {
 
   // async input() -> UI
   pyodide.globals.set("__worker_console_input__", (prompt) => {
-    post("input_request", { prompt: String(prompt ?? "") });
+    post("input_request", { prompt: String(prompt ?? ""), seq });
     return new Promise(resolve => { pendingInputResolve = resolve; });
   });
 
