@@ -3,7 +3,7 @@
 <head>
   <meta charset="utf-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1" />
-  <title>Python Runner (Editor + Console)</title>
+  <title>Python + Turtle Runner (Editor + Turtle + Console)</title>
 
   <!-- CodeMirror 5 -->
   <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/codemirror@5.65.16/lib/codemirror.css">
@@ -21,7 +21,8 @@
     select { padding: 6px 10px; border: 1px solid #ccc; border-radius: 8px; background: white; font-size: 14px; }
 
     #app { flex: 1; display: flex; min-height: 0; width: 100%; }
-    #left, #right { display: flex; flex-direction: column; min-height: 0; flex: 1 1 0; min-width: 220px; }
+    #left, #right { display: flex; flex-direction: column; min-height: 0; flex: 1 1 0; min-width: 240px; }
+    #left { border-right: 1px solid #ddd; }
 
     .pane-title {
       padding: 6px 12px;
@@ -44,13 +45,25 @@
       user-select: none;
       touch-action: none;
     }
-    #splitter:hover { background: #e9e9e9; }
 
     #editorWrap { flex: 1; min-height: 0; }
     .CodeMirror { height: 100% !important; font-size: 14px; line-height: 1.4; }
     .CodeMirror-gutters { border-right: 1px solid #eee; }
 
-    #consoleWrap { flex: 1; min-height: 0; background: #0b0b0b; }
+    #stageWrap { flex: 1; min-height: 0; background: #111; position: relative; }
+    #stage, #overlay {
+      position: absolute;
+      left: 12px; top: 12px;
+      width: calc(100% - 24px);
+      height: calc(100% - 24px);
+      border: 1px solid #333;
+      display: block;
+      box-sizing: border-box;
+    }
+    #stage { background: #111; z-index: 1; }
+    #overlay { z-index: 5; pointer-events: none; }
+
+    #consoleWrap { height: 240px; background: #0b0b0b; border-top: 1px solid #222; min-height: 160px; }
     #console {
       height: 100%;
       padding: 12px;
@@ -64,18 +77,7 @@
       cursor: text;
       background: #0b0b0b;
       box-sizing: border-box;
-      min-height: 0;
     }
-
-    .caret {
-      display: inline-block;
-      width: 8px;
-      margin-left: 1px;
-      background: #eaeaea;
-      animation: blink 1s steps(1) infinite;
-      height: 1em;
-    }
-    @keyframes blink { 50% { opacity: 0; } }
   </style>
 </head>
 
@@ -87,11 +89,6 @@
   <button id="run" disabled>Run ▶</button>
   <button id="stop" disabled>Stop ■</button>
   <button id="reload" disabled>Reload ↻</button>
-
-  <button id="newFile" disabled>New…</button>
-  <button id="save" disabled>Save</button>
-  <button id="saveAs" disabled>Save As…</button>
-  <button id="upload" disabled>Upload</button>
 
   <div class="spacer"></div>
   <div id="status">Loading…</div>
@@ -106,10 +103,16 @@
   <div id="splitter" title="Drag to resize"></div>
 
   <section id="right">
+    <div class="pane-title">Turtle</div>
+    <div id="stageWrap">
+      <canvas id="stage"></canvas>
+      <canvas id="overlay"></canvas>
+    </div>
+
     <div class="pane-title">
       <span>Console</span>
       <div class="spacer"></div>
-      <button id="clear" disabled>Clear console</button>
+      <button id="clear">Clear console</button>
     </div>
     <div id="consoleWrap">
       <div id="console" tabindex="0"></div>
@@ -117,50 +120,27 @@
   </section>
 </div>
 
-<input id="fileInput" type="file" accept=".txt,.py" style="display:none" />
-
 <script type="module">
   const runBtn = document.getElementById("run");
   const stopBtn = document.getElementById("stop");
   const reloadBtn = document.getElementById("reload");
-  const newBtn = document.getElementById("newFile");
-  const saveBtn = document.getElementById("save");
-  const saveAsBtn = document.getElementById("saveAs");
-  const uploadBtn = document.getElementById("upload");
-  const clearBtn = document.getElementById("clear");
-
   const statusEl = document.getElementById("status");
   const programSel = document.getElementById("program");
   const filenameEl = document.getElementById("filename");
   const consoleEl = document.getElementById("console");
-  const fileInput = document.getElementById("fileInput");
+  const clearBtn = document.getElementById("clear");
 
   const leftPane = document.getElementById("left");
   const rightPane = document.getElementById("right");
   const splitter = document.getElementById("splitter");
   const app = document.getElementById("app");
 
+  const canvas = document.getElementById("stage");
+  const ctx = canvas.getContext("2d");
+  const overlay = document.getElementById("overlay");
+  const octx = overlay.getContext("2d");
+
   const setStatus = (s) => statusEl.textContent = s;
-
-  /* ---------- Console helpers ---------- */
-  function scrollConsole() { consoleEl.scrollTop = consoleEl.scrollHeight; }
-  function removeCaret() { consoleEl.querySelector(".caret")?.remove(); }
-  function renderCaret() {
-    removeCaret();
-    const c = document.createElement("span");
-    c.className = "caret";
-    consoleEl.appendChild(c);
-  }
-  function write(s="") {
-    removeCaret();
-    consoleEl.textContent += s;
-    if (inputActive) renderCaret();
-    scrollConsole();
-  }
-  function writeln(s="") { write(s + "\n"); }
-  function clearConsole() { consoleEl.textContent = ""; }
-
-  clearBtn.onclick = () => { clearConsole(); consoleEl.focus(); };
 
   /* ---------- Editor ---------- */
   const cm = CodeMirror.fromTextArea(document.getElementById("editor"), {
@@ -181,13 +161,14 @@
   let dragging = false;
   function setLeftWidth(px) {
     const total = app.getBoundingClientRect().width;
-    const minLeft = 220;
-    const minRight = 220;
+    const minLeft = 240;
+    const minRight = 280;
     const maxLeft = total - 8 - minRight;
     const clamped = Math.max(minLeft, Math.min(px, maxLeft));
     leftPane.style.flex = `0 0 ${clamped}px`;
     rightPane.style.flex = `1 1 0`;
     cm.refresh();
+    fitAfterLayout();
   }
   splitter.addEventListener("pointerdown", (e) => {
     dragging = true;
@@ -206,84 +187,378 @@
     document.body.style.cursor = "";
     document.body.style.userSelect = "";
   });
-  window.addEventListener("resize", () => cm.refresh());
 
-  /* ---------- Inline input (UI side) ---------- */
-  let inputActive = false;
-  let inputBuffer = "";
-  let waitingForInput = false;
+  /* ---------- Turtle state (displayed) ---------- */
+  const turtleState = { x: 0, y: 0, heading: 0, visible: true, color: "#00ff66" };
+  let logicalState = { x: 0, y: 0, heading: 0, visible: true, pencolor: "#00ff66" };
 
-  function beginInput(prompt) {
-    inputActive = true;
-    inputBuffer = "";
-    waitingForInput = true;
-    if (prompt) write(String(prompt));
-    renderCaret();
-    consoleEl.focus();
+  function toCanvasXY(x, y) {
+    const rect = canvas.getBoundingClientRect();
+    return { cx: rect.width / 2 + x, cy: rect.height / 2 - y };
   }
 
-  function cancelInputIfAny() {
-    if (!waitingForInput) return;
-    inputActive = false;
-    waitingForInput = false;
-    removeCaret();
-    worker?.postMessage({ type: "input_response", text: "" });
+  function overlayClear() {
+    const rect = overlay.getBoundingClientRect();
+    octx.clearRect(0, 0, rect.width, rect.height);
   }
 
-  consoleEl.addEventListener("keydown", (e) => {
-    if (!inputActive) return;
-    e.preventDefault();
+  function redrawTurtle() {
+    overlayClear();
+    if (!turtleState.visible) return;
 
-    if (e.key === "Enter") {
-      write("\n");
-      inputActive = false;
-      waitingForInput = false;
-      removeCaret();
-      worker?.postMessage({ type: "input_response", text: inputBuffer });
-    } else if (e.key === "Backspace") {
-      if (inputBuffer.length) {
-        inputBuffer = inputBuffer.slice(0, -1);
-        removeCaret();
-        consoleEl.textContent = consoleEl.textContent.slice(0, -1);
-        renderCaret();
-      }
-    } else if (e.key.length === 1) {
-      inputBuffer += e.key;
-      write(e.key);
+    const p = toCanvasXY(turtleState.x, turtleState.y);
+    const size = 12;
+    const ang = (turtleState.heading * Math.PI) / 180;
+
+    const tip = { x: Math.cos(ang) * size, y: -Math.sin(ang) * size };
+    const left = { x: Math.cos(ang + 2.5) * (size * 0.75), y: -Math.sin(ang + 2.5) * (size * 0.75) };
+    const right = { x: Math.cos(ang - 2.5) * (size * 0.75), y: -Math.sin(ang - 2.5) * (size * 0.75) };
+
+    octx.beginPath();
+    octx.moveTo(p.cx + tip.x, p.cy + tip.y);
+    octx.lineTo(p.cx + left.x, p.cy + left.y);
+    octx.lineTo(p.cx + right.x, p.cy + right.y);
+    octx.closePath();
+
+    octx.fillStyle = turtleState.color || "#00ff66";
+    octx.globalAlpha = 0.9;
+    octx.fill();
+    octx.globalAlpha = 1;
+  }
+
+  /* ---------- Canvas sizing ---------- */
+  let currentBg = "#111111";
+
+  function fitOneCanvas(c, context) {
+    const rect = c.getBoundingClientRect();
+    const dpr = window.devicePixelRatio || 1;
+    c.width = Math.max(1, Math.floor(rect.width * dpr));
+    c.height = Math.max(1, Math.floor(rect.height * dpr));
+    context.setTransform(dpr, 0, 0, dpr, 0, 0);
+  }
+
+  function canvasClear() {
+    const rect = canvas.getBoundingClientRect();
+    ctx.fillStyle = currentBg;
+    ctx.fillRect(0, 0, rect.width, rect.height);
+  }
+
+  function fitCanvases() {
+    fitOneCanvas(canvas, ctx);
+    fitOneCanvas(overlay, octx);
+    redrawTurtle();
+  }
+
+  function fitAfterLayout() {
+    requestAnimationFrame(() => {
+      fitCanvases();
+      requestAnimationFrame(() => fitCanvases());
+    });
+  }
+
+  window.addEventListener("resize", () => { cm.refresh(); fitAfterLayout(); });
+  fitAfterLayout();
+
+  /* ---------- Ordered animation queue ---------- */
+
+  const q = [];
+  let animating = false;
+  let timer = null;
+
+  let lastLineWaitingForState = null;
+  let lastKnownSpeed = 10;
+
+  // ✅ NEW: guarantee at least this many ticks for any non-zero-distance motion
+  const MIN_TICKS_PER_SEGMENT = 8;
+
+  function speedParams(speed) {
+    let s = Number(speed);
+    if (!Number.isFinite(s)) s = 10;
+    if (s <= 0) return { instant: true, tickMs: 0, pxPerTick: Infinity };
+    if (s > 10) s = 10;
+
+    const tickMs = Math.round(140 - s * 12);      // 128ms .. 20ms
+    const pxPerTick = Math.round(2 + s * 2.6);    // 5px .. 28px
+    return { instant: false, tickMs, pxPerTick };
+  }
+
+  // ✅ NEW: cap pxPerTick based on distance so short lines still animate
+  function effectivePxPerTick(dist, pxPerTick) {
+    // ensure at least MIN_TICKS_PER_SEGMENT steps for this distance
+    const maxPxThisSegment = Math.max(1, dist / MIN_TICKS_PER_SEGMENT);
+    return Math.min(pxPerTick, maxPxThisSegment);
+  }
+
+  function drawSegment(x1, y1, x2, y2, color, width) {
+    const a = toCanvasXY(x1, y1);
+    const b = toCanvasXY(x2, y2);
+    ctx.strokeStyle = color || "#00ff66";
+    ctx.lineWidth = Number(width || 2);
+    ctx.lineCap = "round";
+    ctx.beginPath();
+    ctx.moveTo(a.cx, a.cy);
+    ctx.lineTo(b.cx, b.cy);
+    ctx.stroke();
+  }
+
+  function applyStateToTurtle(s) {
+    if (!s) return;
+    turtleState.x = Number(s.x) || 0;
+    turtleState.y = Number(s.y) || 0;
+    turtleState.heading = Number(s.heading) || 0;
+    turtleState.visible = !!s.visible;
+    turtleState.color = s.pencolor || turtleState.color;
+  }
+
+  function animateMove(from, to, speed, done) {
+    const { instant, tickMs, pxPerTick } = speedParams(speed);
+    const x1 = Number(from.x) || 0, y1 = Number(from.y) || 0;
+    const x2 = Number(to.x) || 0, y2 = Number(to.y) || 0;
+
+    const heading = Number(to.heading) || turtleState.heading;
+    const visible = !!to.visible;
+    const tColor = to.pencolor || turtleState.color;
+
+    if (instant) {
+      turtleState.x = x2; turtleState.y = y2;
+      turtleState.heading = heading;
+      turtleState.visible = visible;
+      turtleState.color = tColor;
+      redrawTurtle();
+      done();
+      return;
     }
-  });
-  consoleEl.addEventListener("mousedown", () => consoleEl.focus());
 
-  /* ---------- Program state ---------- */
+    const dx = x2 - x1, dy = y2 - y1;
+    const dist = Math.hypot(dx, dy);
+
+    if (dist < 0.5) {
+      turtleState.x = x2; turtleState.y = y2;
+      turtleState.heading = heading;
+      turtleState.visible = visible;
+      turtleState.color = tColor;
+      redrawTurtle();
+      done();
+      return;
+    }
+
+    const stepPx = effectivePxPerTick(dist, pxPerTick);
+    let travelled = 0;
+
+    const step = () => {
+      const nextTravel = Math.min(dist, travelled + stepPx);
+      const t = nextTravel / dist;
+
+      turtleState.x = x1 + dx * t;
+      turtleState.y = y1 + dy * t;
+      turtleState.heading = heading;
+      turtleState.visible = visible;
+      turtleState.color = tColor;
+      redrawTurtle();
+
+      travelled = nextTravel;
+
+      if (travelled >= dist - 1e-6) {
+        turtleState.x = x2; turtleState.y = y2;
+        redrawTurtle();
+        done();
+        return;
+      }
+
+      timer = setTimeout(step, tickMs);
+    };
+    step();
+  }
+
+  function animateLine(cmd, done) {
+    const { instant, tickMs, pxPerTick } = speedParams(cmd.speed);
+    const endState = cmd.endState;
+
+    const heading = Number(endState.heading) || turtleState.heading;
+    const visible = !!endState.visible;
+    const tColor = endState.pencolor || turtleState.color;
+
+    if (instant) {
+      drawSegment(cmd.x1, cmd.y1, cmd.x2, cmd.y2, cmd.color, cmd.width);
+      applyStateToTurtle(endState);
+      redrawTurtle();
+      done();
+      return;
+    }
+
+    const x1 = Number(cmd.x1) || 0, y1 = Number(cmd.y1) || 0;
+    const x2 = Number(cmd.x2) || 0, y2 = Number(cmd.y2) || 0;
+    const dx = x2 - x1, dy = y2 - y1;
+    const dist = Math.hypot(dx, dy);
+
+    if (dist < 0.5) {
+      drawSegment(x1, y1, x2, y2, cmd.color, cmd.width);
+      applyStateToTurtle(endState);
+      redrawTurtle();
+      done();
+      return;
+    }
+
+    const stepPx = effectivePxPerTick(dist, pxPerTick);
+    let travelled = 0;
+    let lastX = x1, lastY = y1;
+
+    const step = () => {
+      const nextTravel = Math.min(dist, travelled + stepPx);
+      const t = nextTravel / dist;
+
+      const curX = x1 + dx * t;
+      const curY = y1 + dy * t;
+
+      drawSegment(lastX, lastY, curX, curY, cmd.color, cmd.width);
+
+      turtleState.x = curX;
+      turtleState.y = curY;
+      turtleState.heading = heading;
+      turtleState.visible = visible;
+      turtleState.color = tColor;
+      redrawTurtle();
+
+      travelled = nextTravel;
+      lastX = curX; lastY = curY;
+
+      if (travelled >= dist - 1e-6) {
+        applyStateToTurtle(endState);
+        redrawTurtle();
+        done();
+        return;
+      }
+
+      timer = setTimeout(step, tickMs);
+    };
+    step();
+  }
+
+  function runQueue() {
+    if (animating) return;
+    animating = true;
+
+    const next = () => {
+      if (!q.length) {
+        animating = false;
+        timer = null;
+        return;
+      }
+
+      const item = q.shift();
+
+      if (item.kind === "state") {
+        applyStateToTurtle(item.state);
+        redrawTurtle();
+        next();
+        return;
+      }
+
+      if (item.kind === "move") {
+        animateMove(item.from, item.to, item.speed, next);
+        return;
+      }
+
+      if (item.kind === "line") {
+        if (!item.endState) {
+          q.unshift(item);
+          animating = false;
+          return;
+        }
+        animateLine(item, next);
+        return;
+      }
+    };
+
+    next();
+  }
+
+  function resetQueues() {
+    if (timer) { clearTimeout(timer); timer = null; }
+    q.length = 0;
+    animating = false;
+    lastLineWaitingForState = null;
+  }
+
+  function handleCanvasCmd(cmd) {
+    if (!cmd || !cmd.type) return;
+
+    if (cmd.type === "bg") {
+      currentBg = cmd.color || "#111111";
+      resetQueues();
+      canvasClear();
+      redrawTurtle();
+      return;
+    }
+
+    if (cmd.type === "clear") {
+      resetQueues();
+      canvasClear();
+      redrawTurtle();
+      return;
+    }
+
+    if (cmd.type === "line") {
+      lastKnownSpeed = cmd.speed ?? lastKnownSpeed;
+
+      const lineItem = {
+        kind: "line",
+        x1: cmd.x1, y1: cmd.y1,
+        x2: cmd.x2, y2: cmd.y2,
+        color: cmd.color,
+        width: cmd.width,
+        speed: cmd.speed,
+        endState: null
+      };
+
+      q.push(lineItem);
+      lastLineWaitingForState = lineItem;
+      runQueue();
+      return;
+    }
+
+    if (cmd.type === "turtle") {
+      const nextState = {
+        x: Number(cmd.x) || 0,
+        y: Number(cmd.y) || 0,
+        heading: Number(cmd.heading) || 0,
+        visible: !!cmd.visible,
+        pencolor: cmd.pencolor || logicalState.pencolor
+      };
+
+      if (lastLineWaitingForState && !lastLineWaitingForState.endState) {
+        lastLineWaitingForState.endState = nextState;
+        lastLineWaitingForState = null;
+        logicalState = nextState;
+        runQueue();
+        return;
+      }
+
+      const moved = (nextState.x !== logicalState.x) || (nextState.y !== logicalState.y);
+      const headingChanged = nextState.heading !== logicalState.heading;
+      const visChanged = nextState.visible !== logicalState.visible;
+      const colorChanged = nextState.pencolor !== logicalState.pencolor;
+
+      if (moved) {
+        q.push({ kind: "move", from: logicalState, to: nextState, speed: lastKnownSpeed });
+      } else if (headingChanged || visChanged || colorChanged) {
+        q.push({ kind: "state", state: nextState });
+      }
+
+      logicalState = nextState;
+      runQueue();
+      return;
+    }
+  }
+
+  /* ---------- Console ---------- */
+  function writeln(s="") { consoleEl.textContent += s + "\n"; consoleEl.scrollTop = consoleEl.scrollHeight; }
+  function clearConsole() { consoleEl.textContent = ""; }
+  clearBtn.onclick = () => { clearConsole(); consoleEl.focus(); };
+
+  /* ---------- Programs (simple) ---------- */
   let currentFile = null;
   let previousSelectValue = null;
-
-  const originals = new Map();
-  const uploadedText = new Map();
-  const fileHandles = new Map();
-
-  const hasFS = ("showOpenFilePicker" in window) && ("showSaveFilePicker" in window);
-
-  function getEditorText() { return cm.getValue().replace(/\r\n/g, "\n"); }
-  function getOriginalText(file) { return (originals.get(file) ?? "").replace(/\r\n/g, "\n"); }
-  function isDirtyAgainstOriginal() { return !!currentFile && getEditorText() !== getOriginalText(currentFile); }
-
-  function confirmDiscardIfDirty(actionName) {
-    if (!isDirtyAgainstOriginal()) return true;
-    return confirm(`${actionName} will discard your changes to "${currentFile}".\n\nAre you sure?`);
-  }
-
-  function ensureOptionExists(name) {
-    const exists = Array.from(programSel.options).some(o => o.value === name);
-    if (!exists) programSel.add(new Option(name, name));
-  }
-
-  function setSaveButtons() {
-    const canSave = !!(currentFile && fileHandles.has(currentFile) && isDirtyAgainstOriginal());
-    saveBtn.disabled = !canSave;
-    saveAsBtn.disabled = false;
-  }
-  cm.on("change", () => setSaveButtons());
 
   async function loadProgramList() {
     const res = await fetch("./programs.json", { cache: "no-store" });
@@ -293,22 +568,42 @@
     return files[0];
   }
 
-  async function readFromHandle(handle) {
-    const f = await handle.getFile();
-    return await f.text();
+  async function loadProgram(file) {
+    setStatus("Loading " + file + "…");
+    const res = await fetch("./" + file, { cache: "no-store" });
+    const text = await res.text();
+    currentFile = file;
+    cm.setValue(text);
+    filenameEl.textContent = file;
+    programSel.value = file;
+    previousSelectValue = file;
+    setStatus("Ready");
   }
 
-  /* ---------- Worker run control ---------- */
+  programSel.addEventListener("change", async () => {
+    const nextFile = programSel.value;
+    programSel.value = nextFile;
+    await loadProgram(nextFile);
+  });
+
+  reloadBtn.addEventListener("click", async () => {
+    await loadProgram(programSel.value);
+  });
+
+  /* ---------- Worker ---------- */
   let worker = null;
   let running = false;
 
   function makeWorker() {
-    const w = new Worker("./py_worker.js", { type: "module" });
+    const w = new Worker("./py_worker.js?v=cursor8", { type: "module" });
+
     w.onmessage = (ev) => {
       const m = ev.data || {};
       if (m.type === "stdout") writeln(m.text ?? "");
       if (m.type === "stderr") writeln(m.text ?? "");
       if (m.type === "status") setStatus(m.text ?? "");
+      if (m.type === "canvas_cmd") handleCanvasCmd(m.cmd);
+
       if (m.type === "ready") {
         setStatus("Ready");
         runBtn.disabled = false;
@@ -327,268 +622,57 @@
         setStatus("Error");
         writeln(String(m.text ?? ""));
       }
-      if (m.type === "input_request") {
-        beginInput(m.prompt ?? "");
-      }
     };
+
     w.postMessage({ type: "init" });
     return w;
   }
 
   function stopExecution(reason = "Stopped") {
-    if (running || waitingForInput) {
-      cancelInputIfAny();
-      writeln("\nProgram stopped by user.");
-      try { worker?.terminate(); } catch {}
-      worker = makeWorker();
-      running = false;
-      runBtn.disabled = false;
-      stopBtn.disabled = true;
-      setStatus(reason);
-    }
+    if (!running) return;
+    resetQueues();
+    writeln("Program stopped by user.");
+    try { worker?.terminate(); } catch {}
+    worker = makeWorker();
+    running = false;
+    runBtn.disabled = false;
+    stopBtn.disabled = true;
+    setStatus(reason);
   }
 
-  // Stop button
   stopBtn.addEventListener("click", () => stopExecution("Stopped"));
-
-  // start worker immediately
   worker = makeWorker();
 
-  async function loadProgram(file) {
-    stopExecution("Stopped");
-
-    removeCaret();
-    clearConsole();
-    setStatus("Loading " + file + "…");
-
-    let text;
-    if (fileHandles.has(file)) {
-      text = await readFromHandle(fileHandles.get(file));
-      uploadedText.set(file, text);
-      originals.set(file, text);
-    } else if (uploadedText.has(file)) {
-      text = uploadedText.get(file);
-      originals.set(file, text);
-    } else {
-      const res = await fetch("./" + file, { cache: "no-store" });
-      text = await res.text();
-      originals.set(file, text);
-    }
-
-    currentFile = file;
-    cm.setValue(text);
-    filenameEl.textContent = file;
-
-    programSel.value = file;
-    previousSelectValue = file;
-
-    if (uploadedText.has(file)) setStatus(fileHandles.has(file) ? "Ready (opened)" : "Ready (uploaded)");
-    else setStatus("Ready");
-
-    setSaveButtons();
-    consoleEl.focus();
-  }
-
-  programSel.addEventListener("change", async () => {
-    const nextFile = programSel.value;
-    if (!confirmDiscardIfDirty("Switching programs")) {
-      programSel.value = previousSelectValue ?? currentFile ?? nextFile;
-      return;
-    }
-    await loadProgram(nextFile);
-  });
-
-  reloadBtn.addEventListener("click", async () => {
-    if (!confirmDiscardIfDirty("Reloading")) return;
-    await loadProgram(programSel.value);
-  });
-
-  function normaliseNewName(name) {
-    const trimmed = (name || "").trim();
-    if (!trimmed) return null;
-    const cleaned = trimmed.replace(/[\\\/:*?"<>|]/g, "_");
-    if (/\.(py|txt)$/i.test(cleaned)) return cleaned.replace(/\.(py|txt)$/i, ".py");
-    return cleaned + ".py";
-  }
-
-  newBtn.addEventListener("click", async () => {
-    if (!confirmDiscardIfDirty("Creating a new file")) return;
-    stopExecution("Stopped");
-
-    const entered = prompt("New file name (e.g. my_program):", "my_program");
-    if (entered === null) return;
-    const newName = normaliseNewName(entered);
-    if (!newName) return;
-
-    ensureOptionExists(newName);
-    uploadedText.set(newName, "");
-    originals.set(newName, "");
-    fileHandles.delete(newName);
-
-    await loadProgram(newName);
-    setStatus("Ready (new)");
-    setSaveButtons();
-  });
-
-  /* ---------- Save / Save As (same as before) ---------- */
-  function suggestedTxtNameFromCurrent() {
-    const base = (currentFile || "program").replace(/\.py$/i, "");
-    return base + ".txt";
-  }
-  function fallbackDownloadAsTxt() {
-    const name = suggestedTxtNameFromCurrent();
-    const blob = new Blob([cm.getValue()], { type: "text/plain" });
-    const a = document.createElement("a");
-    a.href = URL.createObjectURL(blob);
-    a.download = name;
-    a.click();
-    URL.revokeObjectURL(a.href);
-  }
-
-  saveBtn.addEventListener("click", async () => {
-    if (!currentFile || !fileHandles.has(currentFile)) return;
-    if (!isDirtyAgainstOriginal()) return;
-
-    try {
-      setStatus("Saving…");
-      const handle = fileHandles.get(currentFile);
-      const writable = await handle.createWritable();
-      await writable.write(cm.getValue());
-      await writable.close();
-
-      const newText = cm.getValue();
-      uploadedText.set(currentFile, newText);
-      originals.set(currentFile, newText);
-
-      setStatus("Saved");
-      setSaveButtons();
-    } catch (e) {
-      setStatus("Save failed");
-      writeln(String(e));
-    }
-  });
-
-  saveAsBtn.addEventListener("click", async () => {
-    try {
-      if (!hasFS) {
-        fallbackDownloadAsTxt();
-        if (currentFile) originals.set(currentFile, cm.getValue());
-        setStatus("Saved (downloaded)");
-        setSaveButtons();
-        return;
-      }
-
-      const handle = await window.showSaveFilePicker({
-        suggestedName: suggestedTxtNameFromCurrent(),
-        types: [{ description: "Text files", accept: { "text/plain": [".txt"] } }]
-      });
-
-      setStatus("Saving…");
-      const writable = await handle.createWritable();
-      await writable.write(cm.getValue());
-      await writable.close();
-
-      if (currentFile) {
-        fileHandles.set(currentFile, handle);
-        const newText = cm.getValue();
-        uploadedText.set(currentFile, newText);
-        originals.set(currentFile, newText);
-      }
-
-      setStatus("Saved");
-      setSaveButtons();
-    } catch (e) {
-      if (String(e).includes("AbortError")) return;
-      setStatus("Save As failed");
-      writeln(String(e));
-    }
-  });
-
-  /* ---------- Upload ---------- */
-  async function openWithFSAccessPicker() {
-    const [handle] = await window.showOpenFilePicker({
-      multiple: false,
-      types: [{ description: "Python or Text", accept: { "text/plain": [".txt"], "text/x-python": [".py"], "application/octet-stream": [".py"] } }]
-    });
-
-    const file = await handle.getFile();
-    const rawName = file.name || "uploaded.txt";
-    const internalName = rawName.replace(/\.(txt|py)$/i, ".py");
-    const text = await file.text();
-
-    ensureOptionExists(internalName);
-    uploadedText.set(internalName, text);
-    originals.set(internalName, text);
-    fileHandles.set(internalName, handle);
-
-    await loadProgram(internalName);
-    setStatus("Ready (opened)");
-  }
-
-  uploadBtn.addEventListener("click", async () => {
-    if (!confirmDiscardIfDirty("Uploading a file")) return;
-    stopExecution("Stopped");
-
-    try {
-      if (hasFS) {
-        await openWithFSAccessPicker();
-      } else {
-        fileInput.value = "";
-        fileInput.click();
-      }
-    } catch (e) {
-      if (String(e).includes("AbortError")) return;
-      setStatus("Upload failed");
-      writeln(String(e));
-    }
-  });
-
-  fileInput.addEventListener("change", async () => {
-    const file = fileInput.files && fileInput.files[0];
-    if (!file) return;
-
-    stopExecution("Stopped");
-
-    const rawName = file.name || "uploaded.txt";
-    const internalName = rawName.replace(/\.(txt|py)$/i, ".py");
-    const text = await file.text();
-
-    ensureOptionExists(internalName);
-    uploadedText.set(internalName, text);
-    originals.set(internalName, text);
-
-    await loadProgram(internalName);
-    setStatus("Ready (uploaded)");
-    setSaveButtons();
-  });
-
-  /* ---------- Run ---------- */
   runBtn.onclick = () => {
     clearConsole();
-    if (!worker) worker = makeWorker();
+    resetQueues();
+
+    currentBg = "#111111";
+    canvasClear();
+
+    logicalState = { x: 0, y: 0, heading: 0, visible: true, pencolor: "#00ff66" };
+    turtleState.x = 0; turtleState.y = 0; turtleState.heading = 0;
+    turtleState.visible = true; turtleState.color = "#00ff66";
+    redrawTurtle();
+
     running = true;
     runBtn.disabled = true;
     stopBtn.disabled = false;
     setStatus("Running…");
     worker.postMessage({ type: "run", code: cm.getValue() });
-    consoleEl.focus();
   };
 
-  /* ---------- UI init ---------- */
-  const first = await loadProgramList();
-  await loadProgram(first);
-
-  // enable UI (worker loads python separately)
-  reloadBtn.disabled = false;
-  newBtn.disabled = false;
-  clearBtn.disabled = false;
-  programSel.disabled = false;
-  saveBtn.disabled = true;
-  saveAsBtn.disabled = false;
-  uploadBtn.disabled = false;
-  stopBtn.disabled = true;   // only enabled while running
-
-  consoleEl.focus();
+  /* ---------- Init ---------- */
+  (async () => {
+    setStatus("Loading…");
+    const first = await loadProgramList();
+    await loadProgram(first);
+    programSel.disabled = false;
+    runBtn.disabled = false;
+    reloadBtn.disabled = false;
+    stopBtn.disabled = true;
+    setStatus("Ready");
+  })();
 </script>
 </body>
 </html>
