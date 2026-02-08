@@ -628,7 +628,61 @@
     lastLineWaitingForState = null;
   }
 
-  function handleCanvasCmd(cmd) {
+  
+  // ✅ Fast-path apply (used for tracer(0)/update() flush): bypass animation queue so drawing snaps in instantly.
+  function applyCmdFast(cmd) {
+    if (!cmd || !cmd.type) return;
+
+    if (cmd.type === "bg") {
+      currentBg = cmd.color || "#111111";
+      strokes.length = 0;
+      resetQueues();
+      canvasClear();
+      // turtle state may follow in batch
+      return;
+    }
+
+    if (cmd.type === "clear") {
+      strokes.length = 0;
+      resetQueues();
+      canvasClear();
+      return;
+    }
+
+    if (cmd.type === "line") {
+      // draw immediately, record stroke, then apply endState if provided later via turtle cmd
+      drawSegment(cmd.x1, cmd.y1, cmd.x2, cmd.y2, cmd.color, cmd.width);
+      strokes.push({
+        x1: Number(cmd.x1) || 0, y1: Number(cmd.y1) || 0,
+        x2: Number(cmd.x2) || 0, y2: Number(cmd.y2) || 0,
+        color: cmd.color, width: cmd.width
+      });
+      return;
+    }
+
+    if (cmd.type === "turtle") {
+      const nextState = {
+        x: Number(cmd.x) || 0,
+        y: Number(cmd.y) || 0,
+        heading: Number(cmd.heading) || 0,
+        visible: !!cmd.visible,
+        pencolor: cmd.pencolor || logicalState.pencolor
+      };
+      applyStateToTurtle(nextState);
+      logicalState = nextState;
+      return;
+    }
+  }
+
+  function applyBatchFast(cmds) {
+    // Prevent any in-flight animation timers and clear the animation queue.
+    resetQueues();
+    for (let i = 0; i < cmds.length; i++) applyCmdFast(cmds[i]);
+    // One redraw at the end
+    redrawTurtle();
+  }
+
+function handleCanvasCmd(cmd) {
     if (!cmd || !cmd.type) return;
 
     if (cmd.type === "bg") {
@@ -867,8 +921,12 @@
       if (m.type === "canvas_cmd_batch") {
         if (!acceptCanvas) return;
         const cmds = m.cmds || [];
-        // Process in-order; handleCanvasCmd already enqueues/animates appropriately.
-        for (let i = 0; i < cmds.length; i++) handleCanvasCmd(cmds[i]);
+        // If this is an update() flush, apply in one fast pass (no animation queue)
+        if (m.flush) {
+          applyBatchFast(cmds);
+        } else {
+          for (let i = 0; i < cmds.length; i++) handleCanvasCmd(cmds[i]);
+        }
       }
 
       if (m.type === "input_request") {
