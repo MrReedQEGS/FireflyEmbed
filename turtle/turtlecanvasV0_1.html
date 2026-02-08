@@ -264,7 +264,6 @@
   const q = [];
   let animating = false;
   let timer = null;
-  let cancelToken = 0; // STOP FIX: increments to cancel in-flight animations
 
   let lastLineWaitingForState = null;
   let lastKnownSpeed = 10;
@@ -345,10 +344,8 @@
 
     const stepPx = effectivePxPerTick(dist, pxPerTick);
     let travelled = 0;
-    const myToken = cancelToken; // STOP FIX
 
     const step = () => {
-      if (myToken !== cancelToken) return; // STOP FIX
       const nextTravel = Math.min(dist, travelled + stepPx);
       const t = nextTravel / dist;
 
@@ -368,8 +365,7 @@
         return;
       }
 
-            if (myToken !== cancelToken) return; // STOP FIX
-timer = setTimeout(step, tickMs);
+      timer = setTimeout(step, tickMs);
     };
     step();
   }
@@ -406,10 +402,8 @@ timer = setTimeout(step, tickMs);
     const stepPx = effectivePxPerTick(dist, pxPerTick);
     let travelled = 0;
     let lastX = x1, lastY = y1;
-    const myToken = cancelToken; // STOP FIX
 
     const step = () => {
-      if (myToken !== cancelToken) return; // STOP FIX
       const nextTravel = Math.min(dist, travelled + stepPx);
       const t = nextTravel / dist;
 
@@ -435,8 +429,7 @@ timer = setTimeout(step, tickMs);
         return;
       }
 
-            if (myToken !== cancelToken) return; // STOP FIX
-timer = setTimeout(step, tickMs);
+      timer = setTimeout(step, tickMs);
     };
     step();
   }
@@ -481,7 +474,6 @@ timer = setTimeout(step, tickMs);
   }
 
   function resetQueues() {
-    cancelToken++; // STOP FIX: invalidate any in-flight animation steps
     if (timer) { clearTimeout(timer); timer = null; }
     q.length = 0;
     animating = false;
@@ -602,8 +594,6 @@ timer = setTimeout(step, tickMs);
   let worker = null;
   let running = false;
 
-  let acceptCanvas = false; // STOP FIX: ignore late canvas_cmd after Stop
-
   function makeWorker() {
     const w = new Worker("./py_worker.js?v=cursor8", { type: "module" });
 
@@ -612,27 +602,24 @@ timer = setTimeout(step, tickMs);
       if (m.type === "stdout") writeln(m.text ?? "");
       if (m.type === "stderr") writeln(m.text ?? "");
       if (m.type === "status") setStatus(m.text ?? "");
-      if (m.type === "canvas_cmd") {
-        if (!acceptCanvas) return; // STOP FIX
-        handleCanvasCmd(m.cmd);
-      }
+      if (m.type === "canvas_cmd") handleCanvasCmd(m.cmd);
 
       if (m.type === "ready") {
         setStatus("Ready");
-        runBtn.disabled = false;
-        // If a run was started while Python was still loading, don't re-disable Stop.
-        if (!running) stopBtn.disabled = true;
+        // Prevent "ready" from re-disabling Stop during an active run
+        if (!running) {
+          runBtn.disabled = false;
+          stopBtn.disabled = true;
+        }
       }
       if (m.type === "done") {
         running = false;
-        acceptCanvas = false; // STOP FIX
         runBtn.disabled = false;
         stopBtn.disabled = true;
         setStatus("Done");
       }
       if (m.type === "error") {
         running = false;
-        acceptCanvas = false; // STOP FIX
         runBtn.disabled = false;
         stopBtn.disabled = true;
         setStatus("Error");
@@ -646,7 +633,6 @@ timer = setTimeout(step, tickMs);
 
   function stopExecution(reason = "Stopped") {
     if (!running) return;
-    acceptCanvas = false; // STOP FIX: freeze visuals immediately
     resetQueues();
     writeln("Program stopped by user.");
     try { worker?.terminate(); } catch {}
@@ -673,7 +659,6 @@ timer = setTimeout(step, tickMs);
     redrawTurtle();
 
     running = true;
-    acceptCanvas = true; // STOP FIX
     runBtn.disabled = true;
     stopBtn.disabled = false;
     setStatus("Running…");
@@ -689,7 +674,8 @@ timer = setTimeout(step, tickMs);
     runBtn.disabled = true;
     reloadBtn.disabled = false;
     stopBtn.disabled = true;
-    setStatus("Ready");
+    // Wait for the worker "ready" message before enabling Run
+    setStatus("Loading Python…");
   })();
 </script>
 </body>
