@@ -863,6 +863,14 @@
         handleCanvasCmd(m.cmd);
       }
 
+      // ✅ Batch flush for tracer(0)/update(): process many canvas commands in one message
+      if (m.type === "canvas_cmd_batch") {
+        if (!acceptCanvas) return;
+        const cmds = m.cmds || [];
+        // Process in-order; handleCanvasCmd already enqueues/animates appropriately.
+        for (let i = 0; i < cmds.length; i++) handleCanvasCmd(cmds[i]);
+      }
+
       if (m.type === "input_request") {
         beginInput(m.prompt ?? "");
       }
