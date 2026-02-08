@@ -595,12 +595,13 @@ const leftPane = document.getElementById("left");
       if (item.kind === "state") {
         applyStateToTurtle(item.state);
         redrawTurtle();
+        markApplied(item.seq);
         next();
         return;
       }
 
       if (item.kind === "move") {
-        animateMove(item.from, item.to, item.speed, next);
+        animateMove(item.from, item.to, item.speed, () => { markApplied(item.seq); next(); });
         return;
       }
 
@@ -610,7 +611,13 @@ const leftPane = document.getElementById("left");
           animating = false;
           return;
         }
-        animateLine(item, next);
+        animateLine(item, () => {
+          const a = Number(item.seqLine);
+          const b = Number(item.seqEnd);
+          const mx = (Number.isFinite(a) ? a : 0) > (Number.isFinite(b) ? b : 0) ? a : b;
+          markApplied(mx);
+          next();
+        });
         return;
       }
     };
@@ -635,6 +642,7 @@ const leftPane = document.getElementById("left");
       resetQueues();
       canvasClear();
       redrawTurtle();
+      markApplied(cmd.seq);
       return;
     }
 
@@ -643,6 +651,7 @@ const leftPane = document.getElementById("left");
       resetQueues();
       canvasClear();
       redrawTurtle();
+      markApplied(cmd.seq);
       return;
     }
 
@@ -656,7 +665,9 @@ const leftPane = document.getElementById("left");
         color: cmd.color,
         width: cmd.width,
         speed: cmd.speed,
-        endState: null
+        endState: null,
+        seqLine: cmd.seq,
+        seqEnd: null
       };
 
       q.push(lineItem);
@@ -676,6 +687,7 @@ const leftPane = document.getElementById("left");
 
       if (lastLineWaitingForState && !lastLineWaitingForState.endState) {
         lastLineWaitingForState.endState = nextState;
+        lastLineWaitingForState.seqEnd = cmd.seq;
         lastLineWaitingForState = null;
         logicalState = nextState;
         runQueue();
@@ -688,9 +700,9 @@ const leftPane = document.getElementById("left");
       const colorChanged = nextState.pencolor !== logicalState.pencolor;
 
       if (moved) {
-        q.push({ kind: "move", from: logicalState, to: nextState, speed: lastKnownSpeed });
+        q.push({ kind: "move", from: logicalState, to: nextState, speed: lastKnownSpeed, seq: cmd.seq });
       } else if (headingChanged || visChanged || colorChanged) {
-        q.push({ kind: "state", state: nextState });
+        q.push({ kind: "state", state: nextState, seq: cmd.seq });
       }
 
       logicalState = nextState;
@@ -702,6 +714,36 @@ const leftPane = document.getElementById("left");
   /* ---------- Console ---------- */
   function writeln(s="") { consoleEl.textContent += s + "\n"; consoleEl.scrollTop = consoleEl.scrollHeight; }
   function clearConsole() { consoleEl.textContent = ""; }
+
+  /* ---------- Output sync (seq) ---------- */
+  const pendingOut = []; // {kind:"stdout"|"stderr", seq:number, text:string}
+  let appliedSeq = 0;
+
+  function flushOut() {
+    pendingOut.sort((a,b) => (a.seq ?? 0) - (b.seq ?? 0));
+    while (pendingOut.length) {
+      const n = pendingOut[0];
+      const s = Number(n.seq);
+      if (!Number.isFinite(s) || s <= appliedSeq) {
+        pendingOut.shift();
+        writeln(n.text ?? "");
+      } else {
+        break;
+      }
+    }
+  }
+
+  function markApplied(seq) {
+    const s = Number(seq);
+    if (!Number.isFinite(s)) return;
+    if (s > appliedSeq) appliedSeq = s;
+    flushOut();
+  }
+
+  function resetSync() {
+    pendingOut.length = 0;
+    appliedSeq = 0;
+  }
   clearBtn.onclick = () => { clearConsole(); consoleEl.focus(); };
 
   /* ---------- Programs (simple) ---------- */
@@ -751,8 +793,16 @@ const leftPane = document.getElementById("left");
 
     w.onmessage = (ev) => {
       const m = ev.data || {};
-      if (m.type === "stdout") writeln(m.text ?? "");
-      if (m.type === "stderr") writeln(m.text ?? "");
+      if (m.type === "stdout") {
+        const s = Number(m.seq);
+        if (Number.isFinite(s)) { pendingOut.push({ kind: "stdout", seq: s, text: m.text ?? "" }); flushOut(); }
+        else writeln(m.text ?? "");
+      }
+      if (m.type === "stderr") {
+        const s = Number(m.seq);
+        if (Number.isFinite(s)) { pendingOut.push({ kind: "stderr", seq: s, text: m.text ?? "" }); flushOut(); }
+        else writeln(m.text ?? "");
+      }
       if (m.type === "status") setStatus(m.text ?? "");
       if (m.type === "canvas_cmd") {
         if (!acceptCanvas) return;
@@ -802,6 +852,7 @@ const leftPane = document.getElementById("left");
   runBtn.onclick = () => {
     clearConsole();
     resetQueues();
+    resetSync();
     strokes.length = 0;
 
     currentBg = "#111111";
