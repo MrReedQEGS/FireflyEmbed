@@ -82,10 +82,12 @@ def update():
 
 def _cmd(**kwargs):
     global _pending_cmds
-    # When tracer(0), we buffer commands and draw "instantly" on update()
-    # by forcing line speed to 0 (JS treats speed<=0 as instant).
+    # When tracer(0), we buffer commands and then flush on update().
+    # To mimic standard turtle tracer/update behavior (instant redraw),
+    # force speed=0 for *both* drawing lines and pen-up turtle moves/state updates.
     if _tracer_n == 0:
-        if kwargs.get("type") == "line":
+        t = kwargs.get("type")
+        if t in ("line", "turtle"):
             kwargs["speed"] = 0
         _pending_cmds.append(kwargs)
     else:
