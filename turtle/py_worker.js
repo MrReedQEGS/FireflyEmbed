@@ -45,6 +45,21 @@ async function ensurePyodide() {
     post("canvas_cmd", { cmd });
   });
 
+  // Batch canvas commands (used by tracer(0)/update() to commit a frame at once)
+  globals.set("__canvas_cmd_batch__", (arr, flush = false) => {
+    const cmds = [];
+    // `arr` may be a PyProxy list; convert to plain JS array of plain objects
+    try {
+      const n = arr.length;
+      for (let i = 0; i < n; i++) cmds.push(toPlainObject(arr.get(i)));
+    } catch {
+      try {
+        for (const item of arr) cmds.push(toPlainObject(item));
+      } catch {}
+    }
+    post("canvas_cmd_batch", { cmds, flush: !!flush });
+  });
+
   // Install async input
   await pyodide.runPythonAsync(`
 import builtins
