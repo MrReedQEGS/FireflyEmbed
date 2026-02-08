@@ -83,7 +83,7 @@
 
 <body>
 <header>
-  <label style="font-size:14px;color:#444;">v7 - Program:</label>
+  <label style="font-size:14px;color:#444;">Program:</label>
   <select id="program" disabled></select>
 
   <button id="run" disabled>Run ▶</button>
@@ -643,7 +643,8 @@
   }
 
   function stopExecution(reason = "Stopped") {
-    if (!running) return;
+    // Stop should work even if Python has already finished but animation is still playing.
+    acceptCanvas = false;
     resetQueues();
     writeln("Program stopped by user.");
     try { worker?.terminate(); } catch {}
