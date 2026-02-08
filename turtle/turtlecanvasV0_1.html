@@ -738,11 +738,40 @@ const leftPane = document.getElementById("left");
     if (!Number.isFinite(s)) return;
     if (s > appliedSeq) appliedSeq = s;
     flushOut();
+    flushInputs();
   }
 
   function resetSync() {
     pendingOut.length = 0;
+    pendingInputs.length = 0;
     appliedSeq = 0;
+  }
+
+  /* ---------- Input sync (seq) ---------- */
+  const pendingInputs = []; // {seq:number, prompt:string}
+
+  async function flushInputs() {
+    // Only ask for input once the animation has applied everything up to that seq.
+    pendingInputs.sort((a,b) => (a.seq ?? 0) - (b.seq ?? 0));
+    while (pendingInputs.length) {
+      const n = pendingInputs[0];
+      const s = Number(n.seq);
+      if (!Number.isFinite(s) || s <= appliedSeq) {
+        pendingInputs.shift();
+
+        // Use a simple modal prompt (smallest, safest implementation)
+        const p = String(n.prompt ?? "");
+        // Show prompt in console for context (Trinket-like)
+        if (p) writeln(p);
+
+        const ans = window.prompt(p || "");
+        worker?.postMessage({ type: "input_response", text: ans ?? "" });
+
+        // If multiple inputs were queued (rare), loop continues.
+      } else {
+        break;
+      }
+    }
   }
   clearBtn.onclick = () => { clearConsole(); consoleEl.focus(); };
 
@@ -802,6 +831,13 @@ const leftPane = document.getElementById("left");
         const s = Number(m.seq);
         if (Number.isFinite(s)) { pendingOut.push({ kind: "stderr", seq: s, text: m.text ?? "" }); flushOut(); }
         else writeln(m.text ?? "");
+      }
+
+      if (m.type === "input_request") {
+        // Queue the prompt so it appears in-order with the animated drawing.
+        const s = Number(m.seq);
+        pendingInputs.push({ seq: Number.isFinite(s) ? s : appliedSeq, prompt: m.prompt ?? "" });
+        flushInputs();
       }
       if (m.type === "status") setStatus(m.text ?? "");
       if (m.type === "canvas_cmd") {
