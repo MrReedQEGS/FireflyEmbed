@@ -113,7 +113,7 @@
 
 <body>
 <header>
-  <label style="font-size:14px;color:#444;">Tracer - Program:</label>
+  <label style="font-size:14px;color:#444;">Tracer2.0 - Program:</label>
   <select id="program" disabled></select>
 
   <button id="run" disabled>Run ▶</button>
@@ -993,6 +993,10 @@
     resetQueues();
     cancelInputUI();
 
+    // Reset tracer mode so it can't leak between runs
+    tracerN = 1;
+    bufferedTurtleState = null;
+
     writeln("Program stopped by user.");
     try { worker?.terminate(); } catch {}
     worker = makeWorker();
@@ -1008,6 +1012,11 @@
   runBtn.onclick = () => {
     clearConsole();
     resetQueues();
+
+    // Reset tracer mode at the start of every run (prevents tracer(0) from leaking)
+    tracerN = 1;
+    bufferedTurtleState = null;
+
     strokes.length = 0;
 
     currentBg = "#111111";
