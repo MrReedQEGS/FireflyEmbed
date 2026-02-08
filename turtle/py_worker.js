@@ -1,3 +1,4 @@
+
 // py_worker.js (type: module)
 import { loadPyodide } from "https://cdn.jsdelivr.net/pyodide/v0.25.1/full/pyodide.mjs";
 
@@ -67,6 +68,27 @@ def _emit_state(t):
          visible=t._visible,
          pencolor=t._pencolor)
 
+
+def _normalize_color(*args):
+    # color("red") or color("#ff0000")
+    if len(args) == 1 and isinstance(args[0], str):
+        return args[0]
+
+    # color((r, g, b)) or color([r, g, b])
+    if len(args) == 1 and isinstance(args[0], (tuple, list)):
+        args = tuple(args[0])
+
+    # color(r, g, b)
+    if len(args) == 3:
+        r, g, b = args
+        r = max(0, min(255, int(r)))
+        g = max(0, min(255, int(g)))
+        b = max(0, min(255, int(b)))
+        return f"rgb({r},{g},{b})"
+
+    raise ValueError("bad color argument")
+
+
 class _WebTurtle:
     def __init__(self):
         self.x = 0.0
@@ -127,6 +149,12 @@ class _WebTurtle:
         if c is None: return self._pencolor
         self._pencolor = str(c)
         _emit_state(self)
+    def color(self, *args):
+        if len(args) == 0:
+            return self._pencolor
+        self._pencolor = _normalize_color(*args)
+        _emit_state(self)
+
 
     def pensize(self, w=None):
         if w is None: return self._pensize
