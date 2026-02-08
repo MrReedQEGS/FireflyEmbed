@@ -117,6 +117,22 @@ class _WebTurtle:
         self._visible = True
         _emit_state(self)
 
+    def reset(self):
+        # Clear the whole canvas (this implementation is single-canvas, not per-turtle ink)
+        _cmd(type="clear")
+
+        # Restore turtle state (match common classroom expectations)
+        self.x = 0.0
+        self.y = 0.0
+        self.heading = 0.0
+        self._pendown = True
+        self._pencolor = "#00ff66"
+        self._pensize = 2.0
+        self._visible = True
+        # Keep speed as-is (so reset doesn't unexpectedly change animation settings)
+        _emit_state(self)
+
+
     def _line_to(self, nx, ny):
         if self._pendown:
             _cmd(
