@@ -6,11 +6,8 @@ let pyodide = null;
 // For async input bridging
 let pendingInputResolve = null;
 
-// Tag messages with the current runId so the UI can ignore stale output
-let activeRunId = 0;
-
 function post(type, data = {}) {
-  self.postMessage({ type, runId: activeRunId, ...data });
+  self.postMessage({ type, ...data });
 }
 
 async function ensurePyodide() {
@@ -57,10 +54,6 @@ self.onmessage = async (ev) => {
 
     if (msg.type === "run") {
       await ensurePyodide();
-
-      // NEW: capture runId for this execution
-      activeRunId = Number(msg.runId ?? 0);
-
       post("status", { text: "Running…" });
 
       const code = wrapUserCode(msg.code ?? "");
