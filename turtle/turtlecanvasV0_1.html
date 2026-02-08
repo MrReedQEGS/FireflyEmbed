@@ -48,366 +48,264 @@
 
     #editorWrap { flex: 1; min-height: 0; }
     .CodeMirror { height: 100% !important; font-size: 14px; line-height: 1.4; }
-    .CodeMirror-gutters { background: #fafafa; border-right: 1px solid #eee; }
+    .CodeMirror-gutters { border-right: 1px solid #eee; }
 
-    #stageWrap { flex: 1; min-height: 0; position: relative; background: #fff; overflow: hidden; }
-    #stage { position: absolute; inset: 0; width: 100%; height: 100%; background: #fff; }
-
-    #consoleDock {
-      position: absolute;
-      right: 14px;
-      bottom: 14px;
-      width: min(420px, 46vw);
-      height: min(240px, 40vh);
-      border: 1px solid #ddd;
-      background: rgba(255,255,255,.95);
-      border-radius: 10px;
-      box-shadow: 0 8px 24px rgba(0,0,0,.12);
-      display: flex;
-      flex-direction: column;
-      overflow: hidden;
-    }
-    #consoleTitle {
-      padding: 6px 10px;
-      background: #f6f6f6;
-      border-bottom: 1px solid #e6e6e6;
-      font-size: 13px;
-      display: flex;
-      align-items: center;
-      gap: 8px;
-    }
-    #consoleTitle .spacer { flex: 1; }
+    #consoleWrap { flex: 1; min-height: 0; background: #0b0b0b; }
     #console {
-      flex: 1;
-      padding: 8px 10px;
+      height: 100%;
+      padding: 12px;
       overflow: auto;
-      font: 12px/1.35 ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, "Liberation Mono", monospace;
+      color: #eaeaea;
+      font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace;
+      font-size: 14px;
+      line-height: 1.4;
       white-space: pre-wrap;
-    }
-    #consoleInputRow {
-      display: none;
-      border-top: 1px solid #eee;
-      padding: 6px 8px;
-      gap: 6px;
-      align-items: center;
-      background: #fff;
-    }
-    #consolePrompt {
-      font: 12px ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, "Liberation Mono", monospace;
-      color: #444;
-      white-space: nowrap;
-      overflow: hidden;
-      text-overflow: ellipsis;
-      max-width: 55%;
-    }
-    #consoleInput {
-      flex: 1;
-      padding: 6px 8px;
-      border: 1px solid #ccc;
-      border-radius: 8px;
-      font: 12px ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, "Liberation Mono", monospace;
-    }
-    #consoleSend {
-      padding: 6px 10px;
+      outline: none;
+      cursor: text;
+      background: #0b0b0b;
+      box-sizing: border-box;
+      min-height: 0;
     }
 
-    /* simple help text */
-    .hint { color:#777; font-size:12px; padding: 6px 12px 10px; border-top: 1px solid #eee; }
+    .caret {
+      display: inline-block;
+      width: 8px;
+      margin-left: 1px;
+      background: #eaeaea;
+      animation: blink 1s steps(1) infinite;
+      height: 1em;
+    }
+    @keyframes blink { 50% { opacity: 0; } }
   </style>
 </head>
 
 <body>
 <header>
-  <button id="runBtn" disabled>Run</button>
-  <button id="stopBtn" disabled>Stop</button>
-  <span id="status">Loading…</span>
-  <span class="spacer"></span>
+  <label style="font-size:14px;color:#444;">Program:</label>
+  <select id="program" disabled></select>
 
-  <label style="display:flex; gap:8px; align-items:center;">
-    <span style="font-size:13px; color:#555;">Program:</span>
-    <select id="programSel"></select>
-  </label>
+  <button id="run" disabled>Run ▶</button>
+  <button id="stop" disabled>Stop ■</button>
+  <button id="reload" disabled>Reload ↻</button>
 
-  <button id="uploadBtn">Upload…</button>
-  <input id="fileInput" type="file" accept=".py,.txt" style="display:none" />
+  <button id="newFile" disabled>New…</button>
+  <button id="save" disabled>Save</button>
+  <button id="saveAs" disabled>Save As…</button>
+  <button id="upload" disabled>Upload</button>
+
+  <div class="spacer"></div>
+  <div id="status">Loading…</div>
 </header>
 
 <div id="app">
-  <div id="left">
-    <div class="pane-title">
-      <strong>Editor</strong>
-      <span class="spacer"></span>
-      <span id="filename" style="font-size:12px; color:#666;"></span>
-      <button id="saveBtn" disabled>Save</button>
-      <button id="resetBtn" disabled>Reset</button>
-    </div>
+  <section id="left">
+    <div class="pane-title" id="filename">Editor</div>
     <div id="editorWrap"><textarea id="editor"></textarea></div>
-    <div class="hint">Ctrl-/ to toggle comment · Ctrl-S to Save</div>
-  </div>
+  </section>
 
   <div id="splitter" title="Drag to resize"></div>
 
-  <div id="right">
+  <section id="right">
     <div class="pane-title">
-      <strong>Stage</strong>
-      <span class="spacer"></span>
-      <button id="clearStageBtn">Clear</button>
+      <span>Console</span>
+      <div class="spacer"></div>
+      <button id="clear" disabled>Clear console</button>
     </div>
-
-    <div id="stageWrap">
-      <canvas id="stage"></canvas>
-
-      <div id="consoleDock">
-        <div id="consoleTitle">
-          <strong>Python output</strong>
-          <span class="spacer"></span>
-          <button id="clearConsoleBtn">Clear</button>
-        </div>
-
-        <div id="console" tabindex="0"></div>
-
-        <div id="consoleInputRow">
-          <div id="consolePrompt"></div>
-          <input id="consoleInput" type="text" autocomplete="off" />
-          <button id="consoleSend">Send</button>
-        </div>
-      </div>
+    <div id="consoleWrap">
+      <div id="console" tabindex="0"></div>
     </div>
-  </div>
+  </section>
 </div>
 
-<script>
-(async () => {
-  /* ---------- Elements ---------- */
-  const runBtn = document.getElementById("runBtn");
-  const stopBtn = document.getElementById("stopBtn");
-  const statusEl = document.getElementById("status");
+<input id="fileInput" type="file" accept=".txt,.py" style="display:none" />
 
-  const programSel = document.getElementById("programSel");
-  const uploadBtn = document.getElementById("uploadBtn");
+<script type="module">
+  const runBtn = document.getElementById("run");
+  const stopBtn = document.getElementById("stop");
+  const reloadBtn = document.getElementById("reload");
+  const newBtn = document.getElementById("newFile");
+  const saveBtn = document.getElementById("save");
+  const saveAsBtn = document.getElementById("saveAs");
+  const uploadBtn = document.getElementById("upload");
+  const clearBtn = document.getElementById("clear");
+
+  const statusEl = document.getElementById("status");
+  const programSel = document.getElementById("program");
+  const filenameEl = document.getElementById("filename");
+  const consoleEl = document.getElementById("console");
   const fileInput = document.getElementById("fileInput");
 
-  const filenameEl = document.getElementById("filename");
-  const saveBtn = document.getElementById("saveBtn");
-  const resetBtn = document.getElementById("resetBtn");
-
-  const stage = document.getElementById("stage");
-  const stageWrap = document.getElementById("stageWrap");
-  const clearStageBtn = document.getElementById("clearStageBtn");
-
-  const consoleDock = document.getElementById("consoleDock");
-  const consoleEl = document.getElementById("console");
-  const clearConsoleBtn = document.getElementById("clearConsoleBtn");
-
-  const consoleInputRow = document.getElementById("consoleInputRow");
-  const consolePromptEl = document.getElementById("consolePrompt");
-  const consoleInput = document.getElementById("consoleInput");
-  const consoleSend = document.getElementById("consoleSend");
-
-  const splitter = document.getElementById("splitter");
   const leftPane = document.getElementById("left");
   const rightPane = document.getElementById("right");
+  const splitter = document.getElementById("splitter");
+  const app = document.getElementById("app");
 
-  /* ---------- Helpers ---------- */
-  function setStatus(t) { statusEl.textContent = t; }
+  const setStatus = (s) => statusEl.textContent = s;
 
-  function writeln(s) {
-    const text = String(s ?? "");
-    consoleEl.textContent += text;
-    if (!text.endsWith("\n")) consoleEl.textContent += "\n";
-    consoleEl.scrollTop = consoleEl.scrollHeight;
+  /* ---------- Console helpers ---------- */
+  function scrollConsole() { consoleEl.scrollTop = consoleEl.scrollHeight; }
+  function removeCaret() { consoleEl.querySelector(".caret")?.remove(); }
+  function renderCaret() {
+    removeCaret();
+    const c = document.createElement("span");
+    c.className = "caret";
+    consoleEl.appendChild(c);
   }
-  function clearConsole() {
-    consoleEl.textContent = "";
+  function write(s="") {
+    removeCaret();
+    consoleEl.textContent += s;
+    if (inputActive) renderCaret();
+    scrollConsole();
   }
+  function writeln(s="") { write(s + "\n"); }
+  function clearConsole() { consoleEl.textContent = ""; }
 
-  clearConsoleBtn.onclick = () => clearConsole();
-
-  /* ---------- Stage sizing ---------- */
-  function resizeCanvas() {
-    const rect = stageWrap.getBoundingClientRect();
-    stage.width = Math.max(1, Math.floor(rect.width));
-    stage.height = Math.max(1, Math.floor(rect.height));
-    // If your turtle renderer uses the canvas, it should read stage.width/height.
-  }
-  window.addEventListener("resize", resizeCanvas);
-  resizeCanvas();
-
-  clearStageBtn.onclick = () => {
-    const ctx = stage.getContext("2d");
-    ctx.clearRect(0, 0, stage.width, stage.height);
-  };
-
-  /* ---------- Splitter (resizable panes) ---------- */
-  let dragging = false;
-  splitter.addEventListener("pointerdown", (e) => {
-    dragging = true;
-    splitter.setPointerCapture(e.pointerId);
-  });
-  splitter.addEventListener("pointermove", (e) => {
-    if (!dragging) return;
-    const rect = document.getElementById("app").getBoundingClientRect();
-    const x = e.clientX - rect.left;
-    const pct = Math.min(80, Math.max(20, (x / rect.width) * 100));
-    leftPane.style.flex = `0 0 ${pct}%`;
-    rightPane.style.flex = `0 0 ${100 - pct}%`;
-    resizeCanvas();
-    cm.refresh();
-  });
-  splitter.addEventListener("pointerup", () => dragging = false);
-  splitter.addEventListener("pointercancel", () => dragging = false);
+  clearBtn.onclick = () => { clearConsole(); consoleEl.focus(); };
 
   /* ---------- Editor ---------- */
   const cm = CodeMirror.fromTextArea(document.getElementById("editor"), {
     mode: "python",
     lineNumbers: true,
-    matchBrackets: true,
     indentUnit: 4,
     tabSize: 4,
+    smartIndent: true,
+    matchBrackets: true,
     extraKeys: {
-      "Ctrl-/": "toggleComment",
-      "Cmd-/": "toggleComment",
-      "Ctrl-S": () => saveCurrent(),
-      "Cmd-S": () => saveCurrent(),
+      "Tab": cm => cm.replaceSelection("    ", "end"),
+      "Shift-Tab": cm => cm.indentSelection("subtract")
     }
   });
+  cm.setSize(null, "100%");
 
-  /* ---------- Programs + Upload ---------- */
-  const uploadedText = new Map();   // filename -> content
-  const originals = new Map();      // filename -> original content
-  const fileHandles = new Map();    // filename -> File
-  let currentFile = "";
-  let previousSelectValue = "";
-
-  async function loadProgramList() {
-    // Your original version probably expects a file list next to this HTML.
-    // We'll keep your existing "programs.txt" behavior:
-    // programs.txt should contain one filename per line.
-    let list = [];
-    try {
-      const res = await fetch("./programs.txt", { cache: "no-store" });
-      if (res.ok) {
-        list = (await res.text()).split("\n").map(s => s.trim()).filter(Boolean);
-      }
-    } catch {}
-    if (!list.length) list = ["example.py"];
-
-    programSel.innerHTML = "";
-    for (const f of list) {
-      const opt = document.createElement("option");
-      opt.value = f;
-      opt.textContent = f;
-      programSel.appendChild(opt);
-    }
-    previousSelectValue = list[0];
-    return list[0];
+  /* ---------- Splitter ---------- */
+  let dragging = false;
+  function setLeftWidth(px) {
+    const total = app.getBoundingClientRect().width;
+    const minLeft = 220;
+    const minRight = 220;
+    const maxLeft = total - 8 - minRight;
+    const clamped = Math.max(minLeft, Math.min(px, maxLeft));
+    leftPane.style.flex = `0 0 ${clamped}px`;
+    rightPane.style.flex = `1 1 0`;
+    cm.refresh();
   }
+  splitter.addEventListener("pointerdown", (e) => {
+    dragging = true;
+    splitter.setPointerCapture(e.pointerId);
+    document.body.style.cursor = "col-resize";
+    document.body.style.userSelect = "none";
+  });
+  splitter.addEventListener("pointermove", (e) => {
+    if (!dragging) return;
+    const rect = app.getBoundingClientRect();
+    setLeftWidth(e.clientX - rect.left);
+  });
+  splitter.addEventListener("pointerup", (e) => {
+    dragging = false;
+    try { splitter.releasePointerCapture(e.pointerId); } catch {}
+    document.body.style.cursor = "";
+    document.body.style.userSelect = "";
+  });
+  window.addEventListener("resize", () => cm.refresh());
 
-  async function readFromHandle(file) {
-    return await file.text();
-  }
-
-  function setSaveButtons() {
-    const text = cm.getValue();
-    const orig = originals.get(currentFile) ?? "";
-    const dirty = text !== orig;
-    saveBtn.disabled = !dirty;
-    resetBtn.disabled = !dirty;
-  }
-
-  cm.on("change", () => setSaveButtons());
-
-  async function saveCurrent() {
-    if (!currentFile) return;
-    uploadedText.set(currentFile, cm.getValue());
-    originals.set(currentFile, cm.getValue());
-    setSaveButtons();
-    setStatus("Saved");
-  }
-
-  function resetCurrent() {
-    if (!currentFile) return;
-    const orig = originals.get(currentFile) ?? "";
-    cm.setValue(orig);
-    setSaveButtons();
-    setStatus("Reset");
-  }
-
-  saveBtn.onclick = () => saveCurrent();
-  resetBtn.onclick = () => resetCurrent();
-
-  uploadBtn.onclick = () => fileInput.click();
-  fileInput.onchange = async () => {
-    const f = fileInput.files?.[0];
-    if (!f) return;
-
-    const text = await f.text();
-    uploadedText.set(f.name, text);
-    originals.set(f.name, text);
-    fileHandles.set(f.name, f);
-
-    // Add to dropdown if needed
-    if (![...programSel.options].some(o => o.value === f.name)) {
-      const opt = document.createElement("option");
-      opt.value = f.name;
-      opt.textContent = f.name;
-      programSel.appendChild(opt);
-    }
-
-    await loadProgram(f.name);
-    fileInput.value = "";
-  };
-
-  /* ---------- Console input (async input()) ---------- */
+  /* ---------- Inline input (UI side) ---------- */
+  let inputActive = false;
+  let inputBuffer = "";
   let waitingForInput = false;
 
-  function beginInput(promptText) {
+  function beginInput(prompt) {
+    inputActive = true;
+    inputBuffer = "";
     waitingForInput = true;
-    consoleInputRow.style.display = "flex";
-    consolePromptEl.textContent = promptText || "";
-    consoleInput.value = "";
-    consoleInput.focus();
-  }
-
-  function removeCaret() {
-    // no-op placeholder (kept for compatibility with your previous structure)
+    if (prompt) write(String(prompt));
+    renderCaret();
+    consoleEl.focus();
   }
 
   function cancelInputIfAny() {
     if (!waitingForInput) return;
+    inputActive = false;
     waitingForInput = false;
-    consoleInputRow.style.display = "none";
-    consolePromptEl.textContent = "";
-    consoleInput.value = "";
+    removeCaret();
+    worker?.postMessage({ type: "input_response", text: "" });
   }
 
-  function sendInput() {
-    if (!waitingForInput) return;
-    const val = consoleInput.value;
-    cancelInputIfAny();
-    worker?.postMessage({ type: "input_response", text: val });
-  }
+  consoleEl.addEventListener("keydown", (e) => {
+    if (!inputActive) return;
+    e.preventDefault();
 
-  consoleSend.onclick = () => sendInput();
-  consoleInput.addEventListener("keydown", (e) => {
     if (e.key === "Enter") {
-      e.preventDefault();
-      sendInput();
+      write("\n");
+      inputActive = false;
+      waitingForInput = false;
+      removeCaret();
+      worker?.postMessage({ type: "input_response", text: inputBuffer });
+    } else if (e.key === "Backspace") {
+      if (inputBuffer.length) {
+        inputBuffer = inputBuffer.slice(0, -1);
+        removeCaret();
+        consoleEl.textContent = consoleEl.textContent.slice(0, -1);
+        renderCaret();
+      }
+    } else if (e.key.length === 1) {
+      inputBuffer += e.key;
+      write(e.key);
     }
   });
+  consoleEl.addEventListener("mousedown", () => consoleEl.focus());
+
+  /* ---------- Program state ---------- */
+  let currentFile = null;
+  let previousSelectValue = null;
+
+  const originals = new Map();
+  const uploadedText = new Map();
+  const fileHandles = new Map();
+
+  const hasFS = ("showOpenFilePicker" in window) && ("showSaveFilePicker" in window);
+
+  function getEditorText() { return cm.getValue().replace(/\r\n/g, "\n"); }
+  function getOriginalText(file) { return (originals.get(file) ?? "").replace(/\r\n/g, "\n"); }
+  function isDirtyAgainstOriginal() { return !!currentFile && getEditorText() !== getOriginalText(currentFile); }
+
+  function confirmDiscardIfDirty(actionName) {
+    if (!isDirtyAgainstOriginal()) return true;
+    return confirm(`${actionName} will discard your changes to "${currentFile}".\n\nAre you sure?`);
+  }
+
+  function ensureOptionExists(name) {
+    const exists = Array.from(programSel.options).some(o => o.value === name);
+    if (!exists) programSel.add(new Option(name, name));
+  }
+
+  function setSaveButtons() {
+    const canSave = !!(currentFile && fileHandles.has(currentFile) && isDirtyAgainstOriginal());
+    saveBtn.disabled = !canSave;
+    saveAsBtn.disabled = false;
+  }
+  cm.on("change", () => setSaveButtons());
+
+  async function loadProgramList() {
+    const res = await fetch("./programs.json", { cache: "no-store" });
+    const files = await res.json();
+    programSel.innerHTML = "";
+    for (const f of files) programSel.add(new Option(f, f));
+    return files[0];
+  }
+
+  async function readFromHandle(handle) {
+    const f = await handle.getFile();
+    return await f.text();
+  }
 
   /* ---------- Worker run control ---------- */
   let worker = null;
   let running = false;
-  let runId = 0; // increments each time you run/stop; used to ignore stale worker messages
 
   function makeWorker() {
     const w = new Worker("./py_worker.js", { type: "module" });
     w.onmessage = (ev) => {
       const m = ev.data || {};
-      // Ignore messages from older runs (e.g., after Stop)
-      if (m.runId && m.runId !== runId) return;
-
       if (m.type === "stdout") writeln(m.text ?? "");
       if (m.type === "stderr") writeln(m.text ?? "");
       if (m.type === "status") setStatus(m.text ?? "");
@@ -438,24 +336,15 @@
   }
 
   function stopExecution(reason = "Stopped") {
-    const shouldAnnounce = (running || waitingForInput);
-
-    // Invalidate any late messages from the current run
-    runId += 1;
-
-    cancelInputIfAny();
-
-    // Terminate and recreate the worker so Python stops immediately
-    try { worker?.terminate(); } catch {}
-    worker = makeWorker();
-
-    running = false;
-    runBtn.disabled = false;
-    stopBtn.disabled = true;
-    setStatus(reason);
-
-    if (shouldAnnounce) {
-      writeln("Program stopped by user");
+    if (running || waitingForInput) {
+      cancelInputIfAny();
+      writeln("\nProgram stopped by user.");
+      try { worker?.terminate(); } catch {}
+      worker = makeWorker();
+      running = false;
+      runBtn.disabled = false;
+      stopBtn.disabled = true;
+      setStatus(reason);
     }
   }
 
@@ -501,10 +390,176 @@
   }
 
   programSel.addEventListener("change", async () => {
-    const next = programSel.value;
-    if (!next) return;
-    previousSelectValue = next;
-    await loadProgram(next);
+    const nextFile = programSel.value;
+    if (!confirmDiscardIfDirty("Switching programs")) {
+      programSel.value = previousSelectValue ?? currentFile ?? nextFile;
+      return;
+    }
+    await loadProgram(nextFile);
+  });
+
+  reloadBtn.addEventListener("click", async () => {
+    if (!confirmDiscardIfDirty("Reloading")) return;
+    await loadProgram(programSel.value);
+  });
+
+  function normaliseNewName(name) {
+    const trimmed = (name || "").trim();
+    if (!trimmed) return null;
+    const cleaned = trimmed.replace(/[\\\/:*?"<>|]/g, "_");
+    if (/\.(py|txt)$/i.test(cleaned)) return cleaned.replace(/\.(py|txt)$/i, ".py");
+    return cleaned + ".py";
+  }
+
+  newBtn.addEventListener("click", async () => {
+    if (!confirmDiscardIfDirty("Creating a new file")) return;
+    stopExecution("Stopped");
+
+    const entered = prompt("New file name (e.g. my_program):", "my_program");
+    if (entered === null) return;
+    const newName = normaliseNewName(entered);
+    if (!newName) return;
+
+    ensureOptionExists(newName);
+    uploadedText.set(newName, "");
+    originals.set(newName, "");
+    fileHandles.delete(newName);
+
+    await loadProgram(newName);
+    setStatus("Ready (new)");
+    setSaveButtons();
+  });
+
+  /* ---------- Save / Save As (same as before) ---------- */
+  function suggestedTxtNameFromCurrent() {
+    const base = (currentFile || "program").replace(/\.py$/i, "");
+    return base + ".txt";
+  }
+  function fallbackDownloadAsTxt() {
+    const name = suggestedTxtNameFromCurrent();
+    const blob = new Blob([cm.getValue()], { type: "text/plain" });
+    const a = document.createElement("a");
+    a.href = URL.createObjectURL(blob);
+    a.download = name;
+    a.click();
+    URL.revokeObjectURL(a.href);
+  }
+
+  saveBtn.addEventListener("click", async () => {
+    if (!currentFile || !fileHandles.has(currentFile)) return;
+    if (!isDirtyAgainstOriginal()) return;
+
+    try {
+      setStatus("Saving…");
+      const handle = fileHandles.get(currentFile);
+      const writable = await handle.createWritable();
+      await writable.write(cm.getValue());
+      await writable.close();
+
+      const newText = cm.getValue();
+      uploadedText.set(currentFile, newText);
+      originals.set(currentFile, newText);
+
+      setStatus("Saved");
+      setSaveButtons();
+    } catch (e) {
+      setStatus("Save failed");
+      writeln(String(e));
+    }
+  });
+
+  saveAsBtn.addEventListener("click", async () => {
+    try {
+      if (!hasFS) {
+        fallbackDownloadAsTxt();
+        if (currentFile) originals.set(currentFile, cm.getValue());
+        setStatus("Saved (downloaded)");
+        setSaveButtons();
+        return;
+      }
+
+      const handle = await window.showSaveFilePicker({
+        suggestedName: suggestedTxtNameFromCurrent(),
+        types: [{ description: "Text files", accept: { "text/plain": [".txt"] } }]
+      });
+
+      setStatus("Saving…");
+      const writable = await handle.createWritable();
+      await writable.write(cm.getValue());
+      await writable.close();
+
+      if (currentFile) {
+        fileHandles.set(currentFile, handle);
+        const newText = cm.getValue();
+        uploadedText.set(currentFile, newText);
+        originals.set(currentFile, newText);
+      }
+
+      setStatus("Saved");
+      setSaveButtons();
+    } catch (e) {
+      if (String(e).includes("AbortError")) return;
+      setStatus("Save As failed");
+      writeln(String(e));
+    }
+  });
+
+  /* ---------- Upload ---------- */
+  async function openWithFSAccessPicker() {
+    const [handle] = await window.showOpenFilePicker({
+      multiple: false,
+      types: [{ description: "Python or Text", accept: { "text/plain": [".txt"], "text/x-python": [".py"], "application/octet-stream": [".py"] } }]
+    });
+
+    const file = await handle.getFile();
+    const rawName = file.name || "uploaded.txt";
+    const internalName = rawName.replace(/\.(txt|py)$/i, ".py");
+    const text = await file.text();
+
+    ensureOptionExists(internalName);
+    uploadedText.set(internalName, text);
+    originals.set(internalName, text);
+    fileHandles.set(internalName, handle);
+
+    await loadProgram(internalName);
+    setStatus("Ready (opened)");
+  }
+
+  uploadBtn.addEventListener("click", async () => {
+    if (!confirmDiscardIfDirty("Uploading a file")) return;
+    stopExecution("Stopped");
+
+    try {
+      if (hasFS) {
+        await openWithFSAccessPicker();
+      } else {
+        fileInput.value = "";
+        fileInput.click();
+      }
+    } catch (e) {
+      if (String(e).includes("AbortError")) return;
+      setStatus("Upload failed");
+      writeln(String(e));
+    }
+  });
+
+  fileInput.addEventListener("change", async () => {
+    const file = fileInput.files && fileInput.files[0];
+    if (!file) return;
+
+    stopExecution("Stopped");
+
+    const rawName = file.name || "uploaded.txt";
+    const internalName = rawName.replace(/\.(txt|py)$/i, ".py");
+    const text = await file.text();
+
+    ensureOptionExists(internalName);
+    uploadedText.set(internalName, text);
+    originals.set(internalName, text);
+
+    await loadProgram(internalName);
+    setStatus("Ready (uploaded)");
+    setSaveButtons();
   });
 
   /* ---------- Run ---------- */
@@ -515,8 +570,7 @@
     runBtn.disabled = true;
     stopBtn.disabled = false;
     setStatus("Running…");
-    runId += 1;
-    worker.postMessage({ type: "run", code: cm.getValue(), runId });
+    worker.postMessage({ type: "run", code: cm.getValue() });
     consoleEl.focus();
   };
 
@@ -524,10 +578,17 @@
   const first = await loadProgramList();
   await loadProgram(first);
 
-  // enable UI (worker loads async)
-  setStatus("Loading Python…");
-})();
-</script>
+  // enable UI (worker loads python separately)
+  reloadBtn.disabled = false;
+  newBtn.disabled = false;
+  clearBtn.disabled = false;
+  programSel.disabled = false;
+  saveBtn.disabled = true;
+  saveAsBtn.disabled = false;
+  uploadBtn.disabled = false;
+  stopBtn.disabled = true;   // only enabled while running
 
+  consoleEl.focus();
+</script>
 </body>
 </html>
