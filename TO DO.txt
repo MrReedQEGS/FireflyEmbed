@@ -1,0 +1,20 @@
+Useful website
+https://favicon.io/emoji-favicons/alien-monster
+
+non-turtle stuff
+it creates my_prog even if it already exists and I think it can write over the one you have if you are not careful.
+
+turtle stuff
+ability to resize all 3 windows
+zoom in and out of drawing window
+drawing not deleted when window resized
+save, upload, etc. just like the non turtle one.
+turtle shape choices?  Could I store the .png on my github and load them in.
+Same for fifa card, etc.  Could a list of available assets be seen and selectable to place on the drawing somehow?
+More than one turtle.
+Colours
+begin_fill() etc.
+The rest of the PLS
+The screen bit where you can change the drawing size, so it will need bars at the side to scroll if the image is bigger than the window.
+Button to hide the conosle or hide the turtle window
+text on the drawing with fonts, etc.
