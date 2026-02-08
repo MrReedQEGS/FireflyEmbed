@@ -947,12 +947,13 @@
   /* ---------- Worker ---------- */
   let worker = null;
   let running = false;
+  let runTimeoutId = null;
 
   let acceptCanvas = true;
   let cancelToken = 0;
 
   function makeWorker() {
-    const w = new Worker("./py_worker.js?v=tracer3", { type: "module" });
+    const w = new Worker("./py_worker.js?v=tracer4", { type: "module" });
 
     w.onmessage = (ev) => {
       const m = ev.data || {};
@@ -975,6 +976,7 @@
       }
       if (m.type === "done") {
         running = false;
+        if (runTimeoutId) { clearTimeout(runTimeoutId); runTimeoutId = null; }
         runBtn.disabled = false;
         stopBtn.disabled = false;
         setStatus("Done");
@@ -982,6 +984,7 @@
       }
       if (m.type === "error") {
         running = false;
+        if (runTimeoutId) { clearTimeout(runTimeoutId); runTimeoutId = null; }
         runBtn.disabled = false;
         stopBtn.disabled = false;
         setStatus("Error");
@@ -994,7 +997,7 @@
     return w;
   }
 
-  function stopExecution(reason = "Stopped") {
+  function stopExecution(reason = "Stopped", userInitiated = true) {
     acceptCanvas = false;
     resetQueues();
     cancelInputUI();
@@ -1003,7 +1006,11 @@
     tracerN = 1;
     bufferedTurtleState = null;
 
-    writeln("Program stopped by user.");
+    if (userInitiated) {
+      writeln("Program stopped by user.");
+    } else {
+      writeln(String(reason) + ".");
+    }
     try { worker?.terminate(); } catch {}
     worker = makeWorker();
     running = false;
@@ -1012,7 +1019,7 @@
     setStatus(reason);
   }
 
-  stopBtn.addEventListener("click", () => stopExecution("Stopped"));
+  stopBtn.addEventListener("click", () => stopExecution("Stopped", true));
   worker = makeWorker();
 
   runBtn.onclick = () => {
@@ -1038,6 +1045,10 @@
     runBtn.disabled = true;
     stopBtn.disabled = false;
     setStatus("Running…");
+    if (runTimeoutId) { clearTimeout(runTimeoutId); runTimeoutId = null; }
+    runTimeoutId = setTimeout(() => {
+      if (running) stopExecution("Stopped: time limit exceeded (3s)", false);
+    }, 3000);
     worker.postMessage({ type: "run", code: cm.getValue() });
   };
 
