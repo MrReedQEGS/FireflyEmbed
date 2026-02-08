@@ -689,8 +689,12 @@
       const visChanged = nextState.visible !== logicalState.visible;
       const colorChanged = nextState.pencolor !== logicalState.pencolor;
 
+      const speedForMove = (cmd.speed ?? lastKnownSpeed);
+
+      if (cmd.speed != null) lastKnownSpeed = cmd.speed;
+
       if (moved) {
-        q.push({ kind: "move", from: logicalState, to: nextState, speed: lastKnownSpeed });
+        q.push({ kind: "move", from: logicalState, to: nextState, speed: speedForMove });
       } else if (headingChanged || visChanged || colorChanged) {
         q.push({ kind: "state", state: nextState });
       }
