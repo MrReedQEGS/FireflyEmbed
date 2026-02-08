@@ -594,6 +594,10 @@
   let worker = null;
   let running = false;
 
+  
+  // When false, ignore late canvas messages after Stop
+  let acceptCanvas = false;
+
   function makeWorker() {
     const w = new Worker("./py_worker.js?v=cursor8", { type: "module" });
 
@@ -602,7 +606,10 @@
       if (m.type === "stdout") writeln(m.text ?? "");
       if (m.type === "stderr") writeln(m.text ?? "");
       if (m.type === "status") setStatus(m.text ?? "");
-      if (m.type === "canvas_cmd") handleCanvasCmd(m.cmd);
+      if (m.type === "canvas_cmd") {
+        if (!acceptCanvas) return;
+        handleCanvasCmd(m.cmd);
+      }
 
       if (m.type === "ready") {
         setStatus("Ready");
@@ -611,12 +618,14 @@
       }
       if (m.type === "done") {
         running = false;
+        acceptCanvas = false;
         runBtn.disabled = false;
         stopBtn.disabled = true;
         setStatus("Done");
       }
       if (m.type === "error") {
         running = false;
+        acceptCanvas = false;
         runBtn.disabled = false;
         stopBtn.disabled = true;
         setStatus("Error");
@@ -630,6 +639,8 @@
 
   function stopExecution(reason = "Stopped") {
     if (!running) return;
+    // Freeze turtle/lines immediately by ignoring any late canvas messages
+    acceptCanvas = false;
     resetQueues();
     writeln("Program stopped by user.");
     try { worker?.terminate(); } catch {}
@@ -656,6 +667,7 @@
     redrawTurtle();
 
     running = true;
+    acceptCanvas = true;
     runBtn.disabled = true;
     stopBtn.disabled = false;
     setStatus("Running…");
