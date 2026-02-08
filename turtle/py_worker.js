@@ -1,4 +1,3 @@
-
 // py_worker.js (type: module)
 import { loadPyodide } from "https://cdn.jsdelivr.net/pyodide/v0.25.1/full/pyodide.mjs";
 
@@ -58,8 +57,36 @@ builtins.input = _input
   await pyodide.runPythonAsync(`
 import math, types, sys
 
+_tracer_n = 1
+_pending_cmds = []
+
+def tracer(n=1, delay=None):
+    """Mimic CPython turtle.tracer(). If n==0, buffer draw/state cmds until update()."""
+    global _tracer_n
+    try:
+        _tracer_n = int(n)
+    except Exception:
+        _tracer_n = 1
+    if _tracer_n != 0:
+        update()
+
+def update():
+    """Flush any buffered draw/state cmds (used with tracer(0))."""
+    global _pending_cmds
+    if not _pending_cmds:
+        return
+    cmds = _pending_cmds
+    _pending_cmds = []
+    for c in cmds:
+        __canvas_cmd__(c)
+
 def _cmd(**kwargs):
-    __canvas_cmd__(kwargs)
+    global _pending_cmds
+    if _tracer_n == 0:
+        _pending_cmds.append(kwargs)
+    else:
+        __canvas_cmd__(kwargs)
+
 
 def _emit_state(t):
     _cmd(type="turtle",
