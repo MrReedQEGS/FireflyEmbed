@@ -78,16 +78,6 @@
       background: #0b0b0b;
       box-sizing: border-box;
     }
-
-    .caret {
-      display: inline-block;
-      width: 8px;
-      margin-left: 1px;
-      background: #eaeaea;
-      animation: blink 1s steps(1) infinite;
-      height: 1em;
-    }
-    @keyframes blink { 50% { opacity: 0; } }
   </style>
 </head>
 
@@ -200,8 +190,6 @@
 
   /* ---------- Turtle state (displayed) ---------- */
   const turtleState = { x: 0, y: 0, heading: 0, visible: true, color: "#00ff66" };
-
-  // "Logical" state (what Python has reached), used to create queued moves/turns in the right order
   let logicalState = { x: 0, y: 0, heading: 0, visible: true, pencolor: "#00ff66" };
 
   function toCanvasXY(x, y) {
@@ -271,27 +259,34 @@
   window.addEventListener("resize", () => { cm.refresh(); fitAfterLayout(); });
   fitAfterLayout();
 
-  /* ---------- Drawing/animation queue (ORDERED timeline) ---------- */
+  /* ---------- Ordered animation queue ---------- */
 
-  // queue items: {kind:"line"|"move"|"state", ...}
   const q = [];
   let animating = false;
   let timer = null;
 
-  // The next turtle state after a "line" belongs to that line
   let lastLineWaitingForState = null;
-
-  // last speed seen (line commands include speed). Used for penup move animation.
   let lastKnownSpeed = 10;
+
+  // ✅ NEW: guarantee at least this many ticks for any non-zero-distance motion
+  const MIN_TICKS_PER_SEGMENT = 8;
 
   function speedParams(speed) {
     let s = Number(speed);
     if (!Number.isFinite(s)) s = 10;
     if (s <= 0) return { instant: true, tickMs: 0, pxPerTick: Infinity };
     if (s > 10) s = 10;
+
     const tickMs = Math.round(140 - s * 12);      // 128ms .. 20ms
     const pxPerTick = Math.round(2 + s * 2.6);    // 5px .. 28px
     return { instant: false, tickMs, pxPerTick };
+  }
+
+  // ✅ NEW: cap pxPerTick based on distance so short lines still animate
+  function effectivePxPerTick(dist, pxPerTick) {
+    // ensure at least MIN_TICKS_PER_SEGMENT steps for this distance
+    const maxPxThisSegment = Math.max(1, dist / MIN_TICKS_PER_SEGMENT);
+    return Math.min(pxPerTick, maxPxThisSegment);
   }
 
   function drawSegment(x1, y1, x2, y2, color, width) {
@@ -336,6 +331,7 @@
 
     const dx = x2 - x1, dy = y2 - y1;
     const dist = Math.hypot(dx, dy);
+
     if (dist < 0.5) {
       turtleState.x = x2; turtleState.y = y2;
       turtleState.heading = heading;
@@ -346,11 +342,13 @@
       return;
     }
 
+    const stepPx = effectivePxPerTick(dist, pxPerTick);
     let travelled = 0;
 
     const step = () => {
-      const nextTravel = Math.min(dist, travelled + pxPerTick);
+      const nextTravel = Math.min(dist, travelled + stepPx);
       const t = nextTravel / dist;
+
       turtleState.x = x1 + dx * t;
       turtleState.y = y1 + dy * t;
       turtleState.heading = heading;
@@ -366,6 +364,7 @@
         done();
         return;
       }
+
       timer = setTimeout(step, tickMs);
     };
     step();
@@ -373,8 +372,8 @@
 
   function animateLine(cmd, done) {
     const { instant, tickMs, pxPerTick } = speedParams(cmd.speed);
+    const endState = cmd.endState;
 
-    const endState = cmd.endState; // turtle state after move
     const heading = Number(endState.heading) || turtleState.heading;
     const visible = !!endState.visible;
     const tColor = endState.pencolor || turtleState.color;
@@ -400,11 +399,12 @@
       return;
     }
 
+    const stepPx = effectivePxPerTick(dist, pxPerTick);
     let travelled = 0;
     let lastX = x1, lastY = y1;
 
     const step = () => {
-      const nextTravel = Math.min(dist, travelled + pxPerTick);
+      const nextTravel = Math.min(dist, travelled + stepPx);
       const t = nextTravel / dist;
 
       const curX = x1 + dx * t;
@@ -460,7 +460,6 @@
       }
 
       if (item.kind === "line") {
-        // Must have endState attached; if not yet attached, put it back and pause.
         if (!item.endState) {
           q.unshift(item);
           animating = false;
@@ -481,7 +480,6 @@
     lastLineWaitingForState = null;
   }
 
-  /* ---------- Handle worker canvas commands ---------- */
   function handleCanvasCmd(cmd) {
     if (!cmd || !cmd.type) return;
 
@@ -528,38 +526,23 @@
         pencolor: cmd.pencolor || logicalState.pencolor
       };
 
-      // If we are expecting the turtle state that belongs to the last line, attach it
       if (lastLineWaitingForState && !lastLineWaitingForState.endState) {
         lastLineWaitingForState.endState = nextState;
         lastLineWaitingForState = null;
-
-        // update logical state
         logicalState = nextState;
-
         runQueue();
         return;
       }
 
-      // Otherwise it's a turtle-only change (turn, show/hide, penup move, etc.)
       const moved = (nextState.x !== logicalState.x) || (nextState.y !== logicalState.y);
       const headingChanged = nextState.heading !== logicalState.heading;
       const visChanged = nextState.visible !== logicalState.visible;
       const colorChanged = nextState.pencolor !== logicalState.pencolor;
 
       if (moved) {
-        // enqueue a no-draw movement so the turtle visibly travels to the new start point
-        q.push({
-          kind: "move",
-          from: logicalState,
-          to: nextState,
-          speed: lastKnownSpeed
-        });
+        q.push({ kind: "move", from: logicalState, to: nextState, speed: lastKnownSpeed });
       } else if (headingChanged || visChanged || colorChanged) {
-        // enqueue a state change at the correct time in the animation timeline
-        q.push({
-          kind: "state",
-          state: nextState
-        });
+        q.push({ kind: "state", state: nextState });
       }
 
       logicalState = nextState;
@@ -569,21 +552,13 @@
   }
 
   /* ---------- Console ---------- */
-  function scrollConsole() { consoleEl.scrollTop = consoleEl.scrollHeight; }
-  function write(s="") { consoleEl.textContent += s; scrollConsole(); }
-  function writeln(s="") { write(s + "\n"); }
+  function writeln(s="") { consoleEl.textContent += s + "\n"; consoleEl.scrollTop = consoleEl.scrollHeight; }
   function clearConsole() { consoleEl.textContent = ""; }
   clearBtn.onclick = () => { clearConsole(); consoleEl.focus(); };
 
   /* ---------- Programs (simple) ---------- */
   let currentFile = null;
   let previousSelectValue = null;
-  const originals = new Map();
-
-  function confirmDiscardIfDirty(actionName) {
-    // keep simple: no dirty checks in this file version
-    return true;
-  }
 
   async function loadProgramList() {
     const res = await fetch("./programs.json", { cache: "no-store" });
@@ -597,40 +572,30 @@
     setStatus("Loading " + file + "…");
     const res = await fetch("./" + file, { cache: "no-store" });
     const text = await res.text();
-    originals.set(file, text);
-
     currentFile = file;
     cm.setValue(text);
     filenameEl.textContent = file;
     programSel.value = file;
     previousSelectValue = file;
-
     setStatus("Ready");
-    consoleEl.focus();
   }
 
   programSel.addEventListener("change", async () => {
     const nextFile = programSel.value;
-    if (!confirmDiscardIfDirty("Switching programs")) {
-      programSel.value = previousSelectValue ?? currentFile ?? nextFile;
-      return;
-    }
+    programSel.value = nextFile;
     await loadProgram(nextFile);
   });
 
   reloadBtn.addEventListener("click", async () => {
-    if (!confirmDiscardIfDirty("Reloading")) return;
     await loadProgram(programSel.value);
   });
 
   /* ---------- Worker ---------- */
   let worker = null;
   let running = false;
-  let waitingForInput = false;
 
   function makeWorker() {
-    // bump to break cache if needed
-    const w = new Worker("./py_worker.js?v=cursor7", { type: "module" });
+    const w = new Worker("./py_worker.js?v=cursor8", { type: "module" });
 
     w.onmessage = (ev) => {
       const m = ev.data || {};
@@ -664,16 +629,15 @@
   }
 
   function stopExecution(reason = "Stopped") {
-    if (running || waitingForInput) {
-      resetQueues();
-      writeln("\nProgram stopped by user.");
-      try { worker?.terminate(); } catch {}
-      worker = makeWorker();
-      running = false;
-      runBtn.disabled = false;
-      stopBtn.disabled = true;
-      setStatus(reason);
-    }
+    if (!running) return;
+    resetQueues();
+    writeln("Program stopped by user.");
+    try { worker?.terminate(); } catch {}
+    worker = makeWorker();
+    running = false;
+    runBtn.disabled = false;
+    stopBtn.disabled = true;
+    setStatus(reason);
   }
 
   stopBtn.addEventListener("click", () => stopExecution("Stopped"));
@@ -686,7 +650,6 @@
     currentBg = "#111111";
     canvasClear();
 
-    // reset both states
     logicalState = { x: 0, y: 0, heading: 0, visible: true, pencolor: "#00ff66" };
     turtleState.x = 0; turtleState.y = 0; turtleState.heading = 0;
     turtleState.visible = true; turtleState.color = "#00ff66";
@@ -697,7 +660,6 @@
     stopBtn.disabled = false;
     setStatus("Running…");
     worker.postMessage({ type: "run", code: cm.getValue() });
-    consoleEl.focus();
   };
 
   /* ---------- Init ---------- */
