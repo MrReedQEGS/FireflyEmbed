@@ -296,9 +296,35 @@ const leftPane = document.getElementById("left");
     if (s <= 0) return { instant: true, tickMs: 0, pxPerTick: Infinity };
     if (s > 10) s = 10;
 
-    const tickMs = Math.round(140 - s * 12);      // 128ms .. 20ms
-    const pxPerTick = Math.round(2 + s * 2.6);    // 5px .. 28px
-    return { instant: false, tickMs, pxPerTick };
+    // Trinket-like curve:
+    // - speed 1 stays slow (matches previous behavior)
+    // - speed 2 ~= old speed 10
+    // - smooth exponential ramp to "super fast" at speed 10
+    let tickMs;
+    if (s <= 2) {
+      // 1 -> 128ms, 2 -> 20ms
+      tickMs = 128 + (20 - 128) * (s - 1);
+    } else {
+      // 2 -> 20ms, 10 -> 1ms
+      const t = (s - 2) / 8;              // 0..1
+      tickMs = 20 * Math.pow(1 / 20, t);  // 20..1
+    }
+
+    let pxPerTick;
+    if (s <= 2) {
+      // 1 -> 5px, 2 -> 28px
+      pxPerTick = 5 + (28 - 5) * (s - 1);
+    } else {
+      // 2 -> 28px, 10 -> 200px
+      const t = (s - 2) / 8;                  // 0..1
+      pxPerTick = 28 * Math.pow(200 / 28, t); // 28..200
+    }
+
+    return {
+      instant: false,
+      tickMs: Math.max(1, Math.round(tickMs)),
+      pxPerTick: Math.max(1, Math.round(pxPerTick)),
+    };
   }
 
   // ✅ NEW: cap pxPerTick based on distance so short lines still animate
