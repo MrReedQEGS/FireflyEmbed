@@ -333,6 +333,14 @@
   let currentBg = "#111111";
   const strokes = [];
 
+  // Offscreen back buffer for tracer(0) + update()
+  const backCanvas = document.createElement("canvas");
+  const bctx = backCanvas.getContext("2d");
+
+  // tracerN: 1 = normal (default), 0 = manual refresh (draw to back buffer, flip on update())
+  let tracerN = 1;
+  let bufferedTurtleState = null;
+
   function fitOneCanvas(c, context) {
     const rect = c.getBoundingClientRect();
     const dpr = window.devicePixelRatio || 1;
@@ -341,10 +349,41 @@
     context.setTransform(dpr, 0, 0, dpr, 0, 0);
   }
 
-  function canvasClear() {
+  function setDprTransform(context) {
+    const dpr = window.devicePixelRatio || 1;
+    context.setTransform(dpr, 0, 0, dpr, 0, 0);
+  }
+
+  function fitBackBuffer() {
+    backCanvas.width = canvas.width;
+    backCanvas.height = canvas.height;
+    setDprTransform(bctx);
+  }
+
+  function syncBackBufferFromFront() {
+    // Copy device pixels (ignore DPR transforms)
+    bctx.setTransform(1, 0, 0, 1, 0, 0);
+    bctx.clearRect(0, 0, backCanvas.width, backCanvas.height);
+    bctx.drawImage(canvas, 0, 0);
+    setDprTransform(bctx);
+  }
+
+  function flipBackToFront() {
+    ctx.setTransform(1, 0, 0, 1, 0, 0);
+    ctx.clearRect(0, 0, canvas.width, canvas.height);
+    ctx.drawImage(backCanvas, 0, 0);
+    setDprTransform(ctx);
+  }
+
+  function fillBgOn(context) {
     const rect = canvas.getBoundingClientRect();
-    ctx.fillStyle = currentBg;
-    ctx.fillRect(0, 0, rect.width, rect.height);
+    context.fillStyle = currentBg;
+    context.fillRect(0, 0, rect.width, rect.height);
+  }
+
+  function canvasClear() {
+    fillBgOn(ctx);
+    fillBgOn(bctx);
   }
 
   function redrawAll() {
@@ -362,6 +401,7 @@
   function fitCanvases() {
     fitOneCanvas(canvas, ctx);
     fitOneCanvas(overlay, octx);
+    fitBackBuffer();
     redrawAll();
   }
 
@@ -425,16 +465,20 @@
     return Math.min(pxPerTick, maxPxThisSegment);
   }
 
-  function drawSegment(x1, y1, x2, y2, color, width) {
+  function drawSegmentTo(context, x1, y1, x2, y2, color, width) {
     const a = toCanvasXY(x1, y1);
     const b = toCanvasXY(x2, y2);
-    ctx.strokeStyle = color || "#00ff66";
-    ctx.lineWidth = Number(width || 2);
-    ctx.lineCap = "round";
-    ctx.beginPath();
-    ctx.moveTo(a.cx, a.cy);
-    ctx.lineTo(b.cx, b.cy);
-    ctx.stroke();
+    context.strokeStyle = color || "#00ff66";
+    context.lineWidth = Number(width || 2);
+    context.lineCap = "round";
+    context.beginPath();
+    context.moveTo(a.cx, a.cy);
+    context.lineTo(b.cx, b.cy);
+    context.stroke();
+  }
+
+  function drawSegment(x1, y1, x2, y2, color, width) {
+    drawSegmentTo(ctx, x1, y1, x2, y2, color, width);
   }
 
   function applyStateToTurtle(s) {
@@ -522,6 +566,7 @@
 
     if (instant) {
       drawSegment(cmd.x1, cmd.y1, cmd.x2, cmd.y2, cmd.color, cmd.width);
+      drawSegmentTo(bctx, cmd.x1, cmd.y1, cmd.x2, cmd.y2, cmd.color, cmd.width);
       strokes.push({ x1: Number(cmd.x1)||0, y1: Number(cmd.y1)||0, x2: Number(cmd.x2)||0, y2: Number(cmd.y2)||0, color: cmd.color, width: cmd.width });
       applyStateToTurtle(endState);
       redrawTurtle();
@@ -536,6 +581,7 @@
 
     if (dist < 0.5) {
       drawSegment(x1, y1, x2, y2, cmd.color, cmd.width);
+      drawSegmentTo(bctx, x1, y1, x2, y2, cmd.color, cmd.width);
       strokes.push({ x1, y1, x2, y2, color: cmd.color, width: cmd.width });
       applyStateToTurtle(endState);
       redrawTurtle();
@@ -570,6 +616,7 @@
 
       if (travelled >= dist - 1e-6) {
         strokes.push({ x1, y1, x2, y2, color: cmd.color, width: cmd.width });
+        drawSegmentTo(bctx, x1, y1, x2, y2, cmd.color, cmd.width);
         applyStateToTurtle(endState);
         redrawTurtle();
         done();
@@ -631,10 +678,42 @@
   function handleCanvasCmd(cmd) {
     if (!cmd || !cmd.type) return;
 
+    // Manual refresh controls: tracer(0) + update()
+    if (cmd.type === "tracer") {
+      tracerN = Number(cmd.n);
+      if (!Number.isFinite(tracerN)) tracerN = 1;
+
+      // Entering manual mode: stop any in-flight animation and use the current front as the base
+      if (tracerN === 0) {
+        resetQueues();
+        syncBackBufferFromFront();
+      }
+      return;
+    }
+
+    if (cmd.type === "update") {
+      if (tracerN === 0) {
+        flipBackToFront();
+        if (bufferedTurtleState) {
+          logicalState = bufferedTurtleState;
+          bufferedTurtleState = null;
+        }
+        redrawTurtle();
+      }
+      return;
+    }
+
     if (cmd.type === "bg") {
       currentBg = cmd.color || "#111111";
       strokes.length = 0;
       resetQueues();
+      bufferedTurtleState = null;
+
+      if (tracerN === 0) {
+        fillBgOn(bctx);
+        return;
+      }
+
       canvasClear();
       redrawTurtle();
       return;
@@ -643,6 +722,13 @@
     if (cmd.type === "clear") {
       strokes.length = 0;
       resetQueues();
+      bufferedTurtleState = null;
+
+      if (tracerN === 0) {
+        fillBgOn(bctx);
+        return;
+      }
+
       canvasClear();
       redrawTurtle();
       return;
@@ -650,6 +736,13 @@
 
     if (cmd.type === "line") {
       lastKnownSpeed = cmd.speed ?? lastKnownSpeed;
+
+      // tracer(0): draw instantly to the back buffer; don't animate or touch the front canvas
+      if (tracerN === 0) {
+        drawSegmentTo(bctx, cmd.x1, cmd.y1, cmd.x2, cmd.y2, cmd.color, cmd.width);
+        strokes.push({ x1: Number(cmd.x1)||0, y1: Number(cmd.y1)||0, x2: Number(cmd.x2)||0, y2: Number(cmd.y2)||0, color: cmd.color, width: cmd.width });
+        return;
+      }
 
       const lineItem = {
         kind: "line",
@@ -675,6 +768,12 @@
         visible: !!cmd.visible,
         pencolor: cmd.pencolor || logicalState.pencolor
       };
+
+      if (tracerN === 0) {
+        logicalState = nextState;
+        bufferedTurtleState = nextState;
+        return;
+      }
 
       if (lastLineWaitingForState && !lastLineWaitingForState.endState) {
         lastLineWaitingForState.endState = nextState;
@@ -847,7 +946,7 @@
   let cancelToken = 0;
 
   function makeWorker() {
-    const w = new Worker("./py_worker.js?v=cursor8", { type: "module" });
+    const w = new Worker("./py_worker_tracer.js?v=tracer1", { type: "module" });
 
     w.onmessage = (ev) => {
       const m = ev.data || {};
