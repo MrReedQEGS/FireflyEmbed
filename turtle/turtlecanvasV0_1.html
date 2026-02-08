@@ -195,13 +195,13 @@
 
   const canvas = document.getElementById("stage");
   const ctx = canvas.getContext("2d");
+
+  // ✅ Offscreen buffer used only for tracer(0)/update() flush
+  const flushCanvas = document.createElement("canvas");
+  const flushCtx = flushCanvas.getContext("2d");
+
   const overlay = document.getElementById("overlay");
   const octx = overlay.getContext("2d");
-
-  // ✅ Back buffer canvas for double-buffered update() flushes
-  const backCanvas = document.createElement("canvas");
-  const backCtx = backCanvas.getContext("2d");
-
 
   const setStatus = (s) => statusEl.textContent = s;
 
@@ -346,39 +346,28 @@
     context.setTransform(dpr, 0, 0, dpr, 0, 0);
   }
 
-  function blitBackToFront() {
-    // Copy back buffer to the visible canvas in device pixels
-    ctx.save();
-    ctx.setTransform(1, 0, 0, 1, 0, 0);
-    ctx.clearRect(0, 0, canvas.width, canvas.height);
-    ctx.drawImage(backCanvas, 0, 0);
-    ctx.restore();
-  }
-
   function canvasClear() {
     const rect = canvas.getBoundingClientRect();
-    backCtx.fillStyle = currentBg;
-    backCtx.fillRect(0, 0, rect.width, rect.height);
-    blitBackToFront();
+    ctx.fillStyle = currentBg;
+    ctx.fillRect(0, 0, rect.width, rect.height);
   }
 
   function redrawAll() {
     const rect = canvas.getBoundingClientRect();
-    backCtx.fillStyle = currentBg;
-    backCtx.fillRect(0, 0, rect.width, rect.height);
+    ctx.fillStyle = currentBg;
+    ctx.fillRect(0, 0, rect.width, rect.height);
 
     for (const s of strokes) {
-      drawSegment(s.x1, s.y1, s.x2, s.y2, s.color, s.width, /*toBackOnly*/ true);
+      drawSegment(s.x1, s.y1, s.x2, s.y2, s.color, s.width);
     }
 
-    blitBackToFront();
     redrawTurtle();
   }
 
   function fitCanvases() {
     fitOneCanvas(canvas, ctx);
     fitOneCanvas(overlay, octx);
-    fitOneCanvas(backCanvas, backCtx);
+    fitOneCanvas(flushCanvas, flushCtx);
     redrawAll();
   }
 
@@ -442,31 +431,28 @@
     return Math.min(pxPerTick, maxPxThisSegment);
   }
 
-  function drawSegment(x1, y1, x2, y2, color, width, toBackOnly = false) {
+  function drawSegment(x1, y1, x2, y2, color, width) {
     const a = toCanvasXY(x1, y1);
     const b = toCanvasXY(x2, y2);
+    ctx.strokeStyle = color || "#00ff66";
+    ctx.lineWidth = Number(width || 2);
+    ctx.lineCap = "round";
+    ctx.beginPath();
+    ctx.moveTo(a.cx, a.cy);
+    ctx.lineTo(b.cx, b.cy);
+    ctx.stroke();
+  }
 
-    const strokeStyle = color || "#00ff66";
-    const lineWidth = Number(width || 2);
-
-    // Always keep back buffer up to date
-    backCtx.strokeStyle = strokeStyle;
-    backCtx.lineWidth = lineWidth;
-    backCtx.lineCap = "round";
-    backCtx.beginPath();
-    backCtx.moveTo(a.cx, a.cy);
-    backCtx.lineTo(b.cx, b.cy);
-    backCtx.stroke();
-
-    if (!toBackOnly) {
-      ctx.strokeStyle = strokeStyle;
-      ctx.lineWidth = lineWidth;
-      ctx.lineCap = "round";
-      ctx.beginPath();
-      ctx.moveTo(a.cx, a.cy);
-      ctx.lineTo(b.cx, b.cy);
-      ctx.stroke();
-    }
+  function drawSegmentTo(targetCtx, x1, y1, x2, y2, color, width) {
+    const a = toCanvasXY(x1, y1);
+    const b = toCanvasXY(x2, y2);
+    targetCtx.strokeStyle = color || "#00ff66";
+    targetCtx.lineWidth = Number(width || 2);
+    targetCtx.lineCap = "round";
+    targetCtx.beginPath();
+    targetCtx.moveTo(a.cx, a.cy);
+    targetCtx.lineTo(b.cx, b.cy);
+    targetCtx.stroke();
   }
 
   function applyStateToTurtle(s) {
@@ -553,7 +539,7 @@
     const tColor = endState.pencolor || turtleState.color;
 
     if (instant) {
-      drawSegment(cmd.x1, cmd.y1, cmd.x2, cmd.y2, cmd.color, cmd.width, /*toBackOnly*/ true);
+      drawSegment(cmd.x1, cmd.y1, cmd.x2, cmd.y2, cmd.color, cmd.width);
       strokes.push({ x1: Number(cmd.x1)||0, y1: Number(cmd.y1)||0, x2: Number(cmd.x2)||0, y2: Number(cmd.y2)||0, color: cmd.color, width: cmd.width });
       applyStateToTurtle(endState);
       redrawTurtle();
@@ -668,26 +654,19 @@
     if (cmd.type === "bg") {
       currentBg = cmd.color || "#111111";
       strokes.length = 0;
-      resetQueues();
-      const rect = canvas.getBoundingClientRect();
-      backCtx.fillStyle = currentBg;
-      backCtx.fillRect(0, 0, rect.width, rect.height);
-      // turtle state may follow in batch
+      // background will be painted on flush canvas
       return;
     }
 
     if (cmd.type === "clear") {
       strokes.length = 0;
-      resetQueues();
-      const rect = canvas.getBoundingClientRect();
-      backCtx.fillStyle = currentBg;
-      backCtx.fillRect(0, 0, rect.width, rect.height);
+      // background will be repainted on flush canvas
       return;
     }
 
     if (cmd.type === "line") {
       // draw immediately, record stroke, then apply endState if provided later via turtle cmd
-      drawSegment(cmd.x1, cmd.y1, cmd.x2, cmd.y2, cmd.color, cmd.width, /*toBackOnly*/ true);
+      drawSegment(cmd.x1, cmd.y1, cmd.x2, cmd.y2, cmd.color, cmd.width);
       strokes.push({
         x1: Number(cmd.x1) || 0, y1: Number(cmd.y1) || 0,
         x2: Number(cmd.x2) || 0, y2: Number(cmd.y2) || 0,
@@ -713,9 +692,36 @@
   function applyBatchFast(cmds) {
     // Prevent any in-flight animation timers and clear the animation queue.
     resetQueues();
+
+    // Prepare offscreen buffer (same pixel size as visible canvas)
+    flushCanvas.width = canvas.width;
+    flushCanvas.height = canvas.height;
+    // Match the visible canvas transform (DPR scaling) by copying current transform from ctx
+    // We rely on fitOneCanvas() having set flushCtx transform similarly.
+    // Clear offscreen in device pixels
+    flushCtx.setTransform(1, 0, 0, 1, 0, 0);
+    flushCtx.clearRect(0, 0, flushCanvas.width, flushCanvas.height);
+
+    // Re-apply DPR transform like fitOneCanvas does
+    const dpr = window.devicePixelRatio || 1;
+    flushCtx.setTransform(dpr, 0, 0, dpr, 0, 0);
+
+    // Paint background
+    const rect = canvas.getBoundingClientRect();
+    flushCtx.fillStyle = currentBg;
+    flushCtx.fillRect(0, 0, rect.width, rect.height);
+
+    // Apply commands to offscreen: update strokes + turtle state
     for (let i = 0; i < cmds.length; i++) applyCmdFast(cmds[i]);
-    // One blit + one redraw at the end
-    blitBackToFront();
+
+    // Commit: single blit to visible canvas in device pixels
+    ctx.save();
+    ctx.setTransform(1, 0, 0, 1, 0, 0);
+    ctx.clearRect(0, 0, canvas.width, canvas.height);
+    ctx.drawImage(flushCanvas, 0, 0);
+    ctx.restore();
+
+    // Turtle overlay once at the end
     redrawTurtle();
   }
 
@@ -725,17 +731,13 @@ function handleCanvasCmd(cmd) {
     if (cmd.type === "bg") {
       currentBg = cmd.color || "#111111";
       strokes.length = 0;
-      resetQueues();
-      canvasClear();
-      redrawTurtle();
+      // background will be painted on flush canvas
       return;
     }
 
     if (cmd.type === "clear") {
       strokes.length = 0;
-      resetQueues();
-      canvasClear();
-      redrawTurtle();
+      // background will be repainted on flush canvas
       return;
     }
 
