@@ -2,6 +2,8 @@
 import { loadPyodide } from "https://cdn.jsdelivr.net/pyodide/v0.25.1/full/pyodide.mjs";
 
 let pyodide = null;
+let __cmdId = 0;
+const __pending = new Map();
 let pendingInputResolve = null;
 
 function post(type, data = {}) {
@@ -40,9 +42,11 @@ async function ensurePyodide() {
   });
 
   // Canvas bridge: Python -> worker -> UI
-  pyodide.globals.set("__canvas_cmd__", (obj) => {
+  pyodide.globals.set("__canvas_cmd_promise__", (obj) => {
     const cmd = toPlainObject(obj);
-    post("canvas_cmd", { cmd });
+    const id = ++__cmdId;
+    post("canvas_cmd", { id, cmd });
+    return new Promise((resolve) => __pending.set(id, resolve));
   });
 
   // Install async input
@@ -57,8 +61,15 @@ builtins.input = _input
   await pyodide.runPythonAsync(`
 import math, types, sys
 
-def _cmd(**kwargs):
-    __canvas_cmd__(kwargs)
+from pyodide.ffi import wait_for_promise
+
+def _send_cmd(**kwargs):
+    # Returns a JS Promise that resolves when the UI finishes this command
+    return __canvas_cmd_promise__(kwargs)
+
+def _wait(p):
+    wait_for_promise(p)
+
 
 TRACER_N = 1
 
@@ -75,7 +86,7 @@ def tracer(n=None, delay=None):
     return TRACER_N
 
 def update():
-    _cmd(type="update")
+    _wait(_send_cmd(type="update"))
 
 def _emit_state(t):
     _cmd(type="turtle",
@@ -115,11 +126,10 @@ class _WebTurtle:
         self._pensize = 2.0
         self._speed = 0      # 0 = instant
         self._visible = True
-        _emit_state(self)
-
+            _wait(_emit_state(self))
     def reset(self):
         # Clear the whole canvas (this implementation is single-canvas, not per-turtle ink)
-        _cmd(type="clear")
+        _wait(_send_cmd(type="clear"))
 
         # Restore turtle state (match common classroom expectations)
         self.x = 0.0
@@ -130,9 +140,7 @@ class _WebTurtle:
         self._pensize = 2.0
         self._visible = True
         # Keep speed as-is (so reset doesn't unexpectedly change animation settings)
-        _emit_state(self)
-
-
+            _wait(_emit_state(self))
     def _line_to(self, nx, ny):
         if self._pendown:
             _cmd(
@@ -144,8 +152,7 @@ class _WebTurtle:
                 speed=self._speed
             )
         self.x, self.y = float(nx), float(ny)
-        _emit_state(self)
-
+            _wait(_emit_state(self))
     def forward(self, d):
         r = math.radians(self.heading)
         nx = self.x + math.cos(r) * float(d)
@@ -157,12 +164,10 @@ class _WebTurtle:
 
     def left(self, deg):
         self.heading = (self.heading + float(deg)) % 360.0
-        _emit_state(self)
-
+            _wait(_emit_state(self))
     def right(self, deg):
         self.heading = (self.heading - float(deg)) % 360.0
-        _emit_state(self)
-
+            _wait(_emit_state(self))
     def goto(self, x, y=None):
         if y is None:
             x, y = x
@@ -180,14 +185,12 @@ class _WebTurtle:
     def pencolor(self, c=None):
         if c is None: return self._pencolor
         self._pencolor = str(c)
-        _emit_state(self)
+            _wait(_emit_state(self))
     def color(self, *args):
         if len(args) == 0:
             return self._pencolor
         self._pencolor = _normalize_color(*args)
-        _emit_state(self)
-
-
+            _wait(_emit_state(self))
     def pensize(self, w=None):
         if w is None: return self._pensize
         self._pensize = float(w)
@@ -205,38 +208,32 @@ class _WebTurtle:
 
     def hideturtle(self):
         self._visible = False
-        _emit_state(self)
-
+            _wait(_emit_state(self))
     def ht(self): self.hideturtle()
 
     def showturtle(self):
         self._visible = True
-        _emit_state(self)
-
+            _wait(_emit_state(self))
     def st(self): self.showturtle()
 
     def clear(self):
-        _cmd(type="clear")
-        _emit_state(self)
-
+        _wait(_send_cmd(type="clear"))
+            _wait(_emit_state(self))
     def bgcolor(self, c):
         _cmd(type="bg", color=str(c))
-        _emit_state(self)
-
+            _wait(_emit_state(self))
     def home(self):
         self.goto(0, 0)
         self.heading = 0.0
-        _emit_state(self)
-
+            _wait(_emit_state(self))
     def setheading(self, deg):
         self.heading = float(deg) % 360.0
-        _emit_state(self)
-
+            _wait(_emit_state(self))
 # shared default turtle
 _T = _WebTurtle()
 
 def reset():
-    _cmd(type="clear")
+    _wait(_send_cmd(type="clear"))
     _cmd(type="bg", color="#111111")
     global _T
     _T = _WebTurtle()
