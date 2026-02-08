@@ -74,13 +74,8 @@ def update():
     global _pending_cmds
     if not _pending_cmds:
         return
-    # Flush buffered commands in chunks to reduce UI 'chunking' and make update() look instant.
-    CHUNK = 400
-    i = 0
-    n = len(_pending_cmds)
-    while i < n:
-        __canvas_cmd_batch__(_pending_cmds[i:i+CHUNK])
-        i += CHUNK
+    # Flush buffered commands in a single message so the UI can apply them in one fast pass.
+    __canvas_cmd_batch__(_pending_cmds, True)
     _pending_cmds = []
 
 def _cmd(**kwargs):
