@@ -2,8 +2,6 @@
 import { loadPyodide } from "https://cdn.jsdelivr.net/pyodide/v0.25.1/full/pyodide.mjs";
 
 let pyodide = null;
-let __cmdId = 0;
-const __pending = new Map();
 let pendingInputResolve = null;
 
 function post(type, data = {}) {
@@ -42,7 +40,9 @@ async function ensurePyodide() {
   });
 
   // Canvas bridge: Python -> worker -> UI
-      post("canvas_cmd", { cmd });
+  pyodide.globals.set("__canvas_cmd__", (obj) => {
+    const cmd = toPlainObject(obj);
+    post("canvas_cmd", { cmd });
   });
 
   // Install async input
@@ -57,15 +57,8 @@ builtins.input = _input
   await pyodide.runPythonAsync(`
 import math, types, sys
 
-from pyodide.ffi import wait_for_promise
-
-def _cmd_blocking(**kwargs):
-    # Block until UI finishes this command (line animation, clear, update, etc.)
-    wait_for_promise(__canvas_cmd_promise__(kwargs))
-
-def _cmd_async(**kwargs):
-    # Fire-and-forget command (used for turtle state updates)
-    __canvas_cmd_promise__(kwargs)
+def _cmd(**kwargs):
+    __canvas_cmd__(kwargs)
 
 TRACER_N = 1
 
@@ -82,7 +75,7 @@ def tracer(n=None, delay=None):
     return TRACER_N
 
 def update():
-    _cmd_blocking(type="update")
+    _cmd(type="update")
 
 def _emit_state(t):
     _cmd(type="turtle",
@@ -123,22 +116,6 @@ class _WebTurtle:
         self._speed = 0      # 0 = instant
         self._visible = True
         _emit_state(self)
-
-    def reset(self):
-        # Clear the whole canvas (this implementation is single-canvas, not per-turtle ink)
-        _cmd_blocking(type="clear")
-
-        # Restore turtle state (match common classroom expectations)
-        self.x = 0.0
-        self.y = 0.0
-        self.heading = 0.0
-        self._pendown = True
-        self._pencolor = "#00ff66"
-        self._pensize = 2.0
-        self._visible = True
-        # Keep speed as-is (so reset doesn't unexpectedly change animation settings)
-        _emit_state(self)
-
 
     def _line_to(self, nx, ny):
         if self._pendown:
@@ -223,7 +200,7 @@ class _WebTurtle:
     def st(self): self.showturtle()
 
     def clear(self):
-        _cmd_blocking(type="clear")
+        _cmd(type="clear")
         _emit_state(self)
 
     def bgcolor(self, c):
@@ -243,7 +220,7 @@ class _WebTurtle:
 _T = _WebTurtle()
 
 def reset():
-    _cmd_blocking(type="clear")
+    _cmd(type="clear")
     _cmd(type="bg", color="#111111")
     global _T
     _T = _WebTurtle()
@@ -320,7 +297,7 @@ self.onmessage = async (ev) => {
       // reset turtle each run (Trinket-like)
       post("canvas_cmd", { cmd: { type: "clear" } });
       post("canvas_cmd", { cmd: { type: "bg", color: "#111111" } });
-      await pyodide.runPythonAsync(`import turtle; turtle.reset(); turtle.tracer(1)`);
+      await pyodide.runPythonAsync(`import turtle; turtle.reset()`);
 
       post("status", { text: "Running…" });
       const code = wrapUserCode(msg.code ?? "");
