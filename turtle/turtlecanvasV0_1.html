@@ -264,6 +264,7 @@
   const q = [];
   let animating = false;
   let timer = null;
+  let cancelToken = 0; // STOP FIX: increments to cancel in-flight animations
 
   let lastLineWaitingForState = null;
   let lastKnownSpeed = 10;
@@ -344,8 +345,10 @@
 
     const stepPx = effectivePxPerTick(dist, pxPerTick);
     let travelled = 0;
+    const myToken = cancelToken; // STOP FIX
 
     const step = () => {
+      if (myToken !== cancelToken) return; // STOP FIX
       const nextTravel = Math.min(dist, travelled + stepPx);
       const t = nextTravel / dist;
 
@@ -365,7 +368,8 @@
         return;
       }
 
-      timer = setTimeout(step, tickMs);
+            if (myToken !== cancelToken) return; // STOP FIX
+timer = setTimeout(step, tickMs);
     };
     step();
   }
@@ -402,8 +406,10 @@
     const stepPx = effectivePxPerTick(dist, pxPerTick);
     let travelled = 0;
     let lastX = x1, lastY = y1;
+    const myToken = cancelToken; // STOP FIX
 
     const step = () => {
+      if (myToken !== cancelToken) return; // STOP FIX
       const nextTravel = Math.min(dist, travelled + stepPx);
       const t = nextTravel / dist;
 
@@ -429,7 +435,8 @@
         return;
       }
 
-      timer = setTimeout(step, tickMs);
+            if (myToken !== cancelToken) return; // STOP FIX
+timer = setTimeout(step, tickMs);
     };
     step();
   }
@@ -474,6 +481,7 @@
   }
 
   function resetQueues() {
+    cancelToken++; // STOP FIX: invalidate any in-flight animation steps
     if (timer) { clearTimeout(timer); timer = null; }
     q.length = 0;
     animating = false;
@@ -594,9 +602,7 @@
   let worker = null;
   let running = false;
 
-  
-  // When false, ignore late canvas messages after Stop
-  let acceptCanvas = false;
+  let acceptCanvas = false; // STOP FIX: ignore late canvas_cmd after Stop
 
   function makeWorker() {
     const w = new Worker("./py_worker.js?v=cursor8", { type: "module" });
@@ -607,7 +613,7 @@
       if (m.type === "stderr") writeln(m.text ?? "");
       if (m.type === "status") setStatus(m.text ?? "");
       if (m.type === "canvas_cmd") {
-        if (!acceptCanvas) return;
+        if (!acceptCanvas) return; // STOP FIX
         handleCanvasCmd(m.cmd);
       }
 
@@ -618,14 +624,14 @@
       }
       if (m.type === "done") {
         running = false;
-        acceptCanvas = false;
+        acceptCanvas = false; // STOP FIX
         runBtn.disabled = false;
         stopBtn.disabled = true;
         setStatus("Done");
       }
       if (m.type === "error") {
         running = false;
-        acceptCanvas = false;
+        acceptCanvas = false; // STOP FIX
         runBtn.disabled = false;
         stopBtn.disabled = true;
         setStatus("Error");
@@ -639,8 +645,7 @@
 
   function stopExecution(reason = "Stopped") {
     if (!running) return;
-    // Freeze turtle/lines immediately by ignoring any late canvas messages
-    acceptCanvas = false;
+    acceptCanvas = false; // STOP FIX: freeze visuals immediately
     resetQueues();
     writeln("Program stopped by user.");
     try { worker?.terminate(); } catch {}
@@ -667,7 +672,7 @@
     redrawTurtle();
 
     running = true;
-    acceptCanvas = true;
+    acceptCanvas = true; // STOP FIX
     runBtn.disabled = true;
     stopBtn.disabled = false;
     setStatus("Running…");
