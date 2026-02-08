@@ -83,11 +83,11 @@
 
 <body>
 <header>
-  <label style="font-size:14px;color:#444;">Mr Reed - Program:</label>
+  <label style="font-size:14px;color:#444;">debug 1 - Program:</label>
   <select id="program" disabled></select>
 
   <button id="run" disabled>Run ▶</button>
-  <button id="stop" disabled>Stop ■</button>
+  <button id="stop">Stop ■</button>
   <button id="reload" disabled>Reload ↻</button>
 
   <div class="spacer"></div>
@@ -611,19 +611,19 @@
         setStatus("Ready");
         if (!running) {
           runBtn.disabled = false;
-          stopBtn.disabled = true;
+          stopBtn.disabled = false;
         }
       }
       if (m.type === "done") {
         running = false;
         runBtn.disabled = false;
-        stopBtn.disabled = true;
+        stopBtn.disabled = false;
         setStatus("Done");
       }
       if (m.type === "error") {
         running = false;
         runBtn.disabled = false;
-        stopBtn.disabled = true;
+        stopBtn.disabled = false;
         setStatus("Error");
         writeln(String(m.text ?? ""));
       }
@@ -633,17 +633,12 @@
     return w;
   }
 
-  function stopExecution(reason = "Stopped") {
-    if (!running) return;
-    resetQueues();
-    writeln("Program stopped by user.");
-    try { worker?.terminate(); } catch {}
-    worker = makeWorker();
-    running = false;
-    runBtn.disabled = false;
-    stopBtn.disabled = true;
-    setStatus(reason);
+  function stopExecution() {
+    // Debug: prove the Stop button is clickable.
+    writeln("stop button pressed");
+    setStatus("Stop pressed");
   }
+
 
   stopBtn.addEventListener("click", () => stopExecution("Stopped"));
   worker = makeWorker();
@@ -676,7 +671,7 @@
     // Keep Run disabled until the Python worker reports it is ready.
     runBtn.disabled = !pyReady;
     reloadBtn.disabled = false;
-    stopBtn.disabled = true;
+    stopBtn.disabled = false;
     if (!pyReady) setStatus("Loading Python…");
   })();
 </script>
