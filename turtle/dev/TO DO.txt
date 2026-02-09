@@ -5,6 +5,20 @@ The above thing was fixed, but it appeared to break how input was working. Need 
 This is messing up bob.reset() too.  The reset is happening before the drawing has finished.
 NEXT BIG THING TO FIX
 
+***************************
+Add ability to do ?file=helloworld.py at the end of the URL inside the iframe, so each firefly embed loads a specific sample .py file.
+<iframe
+  src="https://YOUR-GITHUB-PAGES-SITE/turtlecanvasV0_1_new_inactivity_friendlystop2.html?sample=spiral"
+  width="100%"
+  height="700"
+  style="border:0;"
+></iframe
+function getRequestedSampleKey() {
+  const params = new URLSearchParams(window.location.search);
+  return params.get("sample"); // e.g. "spiral"
+}
+***************************
+
 way to change backgroud colour?
 load sprites like fifa etc from my github
 zoom in and out of drawing window
