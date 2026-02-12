@@ -1,4 +1,4 @@
-﻿<!doctype html>
+<!doctype html>
 <html>
 <head>
   <meta charset="utf-8" />
@@ -84,6 +84,8 @@
   <label style="font-size:14px;color:#444;">Mr Reed - Stable v0.1 - Program:</label>
   <select id="program" disabled></select>
 
+  <button id="privacy">Privacy</button>
+
   <button id="run" disabled>Run ▶</button>
   <button id="stop" disabled>Stop ■</button>
   <button id="reload" disabled>Reload ↻</button>
@@ -128,6 +130,7 @@
   const saveAsBtn = document.getElementById("saveAs");
   const uploadBtn = document.getElementById("upload");
   const clearBtn = document.getElementById("clear");
+  const privacyBtn = document.getElementById("privacy");
 
   const statusEl = document.getElementById("status");
   const programSel = document.getElementById("program");
@@ -142,7 +145,21 @@
 
   const setStatus = (s) => statusEl.textContent = s;
 
-  /* ---------- Console helpers ---------- */
+  // Privacy / GDPR
+  const PRIVACY_TEXT = `This website does not collect, store, or process any personal data.
+
+There are no user accounts, no logins, no cookies, no analytics, and no tracking of any kind. Code entered on this site is not saved or transmitted by the site owner.
+
+This site is hosted on GitHub Pages. GitHub may collect limited technical information (such as IP addresses) as part of normal website hosting. This data is processed by GitHub in accordance with their own Privacy Policy.
+
+By using this site, you agree to GitHub’s Privacy Policy.`;
+  const GITHUB_PRIVACY_URL = "https://docs.github.com/en/site-policy/privacy-policies/github-privacy-statement";
+  privacyBtn?.addEventListener("click", () => {
+    const accepted = confirm(PRIVACY_TEXT + "\n\nClick OK to view GitHub’s Privacy Policy in a new tab.");
+    if (accepted) window.open(GITHUB_PRIVACY_URL, "_blank", "noopener");
+  });
+
+/* ---------- Console helpers ---------- */
   function scrollConsole() { consoleEl.scrollTop = consoleEl.scrollHeight; }
   function removeCaret() { consoleEl.querySelector(".caret")?.remove(); }
   function renderCaret() {
