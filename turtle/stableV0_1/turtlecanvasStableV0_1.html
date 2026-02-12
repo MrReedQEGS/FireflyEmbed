@@ -113,7 +113,7 @@
 
 <body>
 <header>
-  <label style="font-size:14px;color:#444;">Mr Reed - Stable V0.1 - Program:</label>
+  <label style="font-size:14px;color:#444;">Mr Reed - Stable v0.1 - Program:</label>
   <select id="program" disabled></select>
 
   <button id="run" disabled>Run ▶</button>
@@ -1092,5 +1092,35 @@
     setStatus("Ready");
   })();
 </script>
+
+<script>
+// === Privacy button (UI-only) ===
+document.addEventListener("DOMContentLoaded", () => {
+  const PRIVACY_TEXT = "This website does not collect, store, or process any personal data.\n\nThere are no user accounts, no logins, no cookies, no analytics, and no tracking of any kind. Code entered on this site is not saved or transmitted by the site owner.\n\nThis site is hosted on GitHub Pages. GitHub may collect limited technical information (such as IP addresses) as part of normal website hosting. This data is processed by GitHub in accordance with their own Privacy Policy.\n\nBy using this site, you agree to GitHub’s Privacy Policy.";
+
+  // Find the first existing button (assumed to be in the top control bar)
+  const firstButton = document.querySelector("button");
+  if (!firstButton || !firstButton.parentElement) return;
+
+  const privacyBtn = document.createElement("button");
+  privacyBtn.textContent = "Privacy";
+  privacyBtn.title = "Privacy / GDPR";
+  privacyBtn.style.marginRight = "6px";
+  privacyBtn.addEventListener("click", () => {
+    
+    const accepted = confirm(
+      PRIVACY_TEXT + "\n\nClick OK to view GitHub’s Privacy Policy in a new tab."
+    );
+    if (accepted) {
+      window.open("https://docs.github.com/en/site-policy/privacy-policies/github-privacy-statement", "_blank", "noopener");
+    }
+
+  });
+
+  // Insert inline with other buttons (to the left of the first button)
+  firstButton.parentElement.insertBefore(privacyBtn, firstButton);
+});
+</script>
+
 </body>
 </html>
