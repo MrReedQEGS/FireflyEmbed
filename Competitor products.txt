@@ -1,0 +1,8 @@
+Competitor products/sites
+
+CodeHS - £6000 for 3 teachers - unlimite students???  This needs checking.
+PickCode.io - $3300 for 3 teachers and 180 students ($10 per student and $500 per teacher)
+
+https://pythonandturtle.com/turtle/   - has both turtle and console!
+https://pythonsandbox.com/turtle   - seems to have no console window!!!
+https://stepindev.com/en/py-playground  - looks good.  Has console too!
